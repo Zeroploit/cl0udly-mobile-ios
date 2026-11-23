@@ -1,0 +1,36 @@
+# Never index secrets, logs or build output (see ~/.config/opencode/AGENTS.md).
+# Local state and credentials
+.env
+.env.*
+auth.json
+*.session
+*.cookie
+*.log
+combos.txt
+proxies*.txt
+results*/
+
+# Build output and tool state
+build/
+dist/
+.gradle/
+.kotlin/
+DerivedData/
+iosApp/build/
+shared/build/
+app/build/
+node_modules/
+.venv/
+__pycache__/
+.git/
+
+# Large binary blobs that add no structure to the graph
+*.ipa
+*.apk
+*.so
+*.a
+*.dylib
+*.jar
+*.zip
+proot/
+rootfs/
