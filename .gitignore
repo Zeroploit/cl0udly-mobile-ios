@@ -7,3 +7,10 @@ local.properties
 *.jks
 *.keystore
 dist/
+
+# iOS / Xcode
+xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+Pods/
+.DS_Store

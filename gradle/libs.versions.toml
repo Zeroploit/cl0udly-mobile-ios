@@ -11,6 +11,9 @@ junit = "4.13.2"
 
 [libraries]
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+# shared module: multiplatform artifacts, not the Android-only ones above
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-foundation = { module = "androidx.compose.foundation:foundation" }
 compose-material3 = { module = "androidx.compose.material3:material3" }
@@ -29,5 +32,10 @@ androidx-fragment = { module = "androidx.fragment:fragment", version = "1.8.9" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+# Kotlin Multiplatform for :shared. AGP 9 forbids the KMP plugin in a
+# com.android.application module, so the Android target comes from Google's
+# com.android.kotlin.multiplatform.library plugin.
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

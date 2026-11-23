@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "opencode-mobile"
 include(":app")
+include(":shared")
