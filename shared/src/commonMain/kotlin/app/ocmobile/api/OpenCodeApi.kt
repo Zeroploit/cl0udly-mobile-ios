@@ -1,10 +1,24 @@
 package app.ocmobile.api
 
-import app.ocmobile.Graph
-import app.ocmobile.data.Prefs
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
+import app.ocmobile.net.ServerEndpoint
+import app.ocmobile.net.httpEngineFactory
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.HttpClientEngineFactory
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.prepareGet
+import io.ktor.client.request.request
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
+import io.ktor.http.encodeURLParameter
+import io.ktor.http.isSuccess
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.readUTF8Line
+import app.ocmobile.platform.nowMillis
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -17,50 +31,70 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.Credentials
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
-import java.io.IOException
-import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
-class ApiException(val code: Int, message: String) : IOException(message)
+/**
+ * A non-2xx answer from the server, carrying the code and the server's own
+ * message. It used to extend `java.io.IOException`; common code has no such
+ * class, so it extends [Exception] and callers catch `ApiException` itself.
+ */
+class ApiException(val code: Int, message: String) : Exception(message)
 
-/** REST API client for the local `opencode serve` (OpenCode 1.x). */
-class OpenCodeApi(private val prefs: Prefs) {
-    val baseUrl get() = Graph.devices.active()?.url ?: "http://127.0.0.1:${prefs.serverPort}"
-    private val password get() = Graph.devices.active()?.password ?: prefs.serverPassword
-    private val jsonType = "application/json".toMediaType()
+/**
+ * REST client for `opencode serve` (OpenCode 1.x).
+ *
+ * It used to be Android-only, built on OkHttp, and it asked [app.ocmobile.Graph]
+ * for the address of the server. Both are gone: the address comes from
+ * [endpoint] and the transport is an engine per platform, which is what lets
+ * the iOS app talk to a server on your computer with the same code.
+ */
+class OpenCodeApi(
+    private val endpoint: () -> ServerEndpoint,
+    private val engineFactory: HttpClientEngineFactory<*> = httpEngineFactory(),
+) {
+    val baseUrl get() = endpoint().url
+    private val password get() = endpoint().password
 
-    val http: OkHttpClient = OkHttpClient.Builder()
-        .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 32 })
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .build()
-
-    /** SSE client: the server sends a heartbeat every 10 s, so 30 s of silence means a dropped connection and we reconnect. */
-    val streamHttp: OkHttpClient = http.newBuilder().readTimeout(30, TimeUnit.SECONDS).pingInterval(20, TimeUnit.SECONDS).build()
-
-    fun request(path: String, query: Map<String, String?> = emptyMap()): Request.Builder {
-        val url = (baseUrl + path).toHttpUrl().newBuilder().apply {
-            query.forEach { (k, v) -> if (v != null) addQueryParameter(k, v) }
-        }.build()
-        return Request.Builder().url(url).header("Authorization", Credentials.basic("opencode", password))
+    private fun newClient(connectMs: Long, socketMs: Long, requestMs: Long): HttpClient = HttpClient(engineFactory) {
+        // The app decides what a non-2xx means (it reads the server's message).
+        expectSuccess = false
+        install(HttpTimeout) {
+            connectTimeoutMillis = connectMs
+            socketTimeoutMillis = socketMs
+            requestTimeoutMillis = requestMs
+        }
     }
 
-    private suspend fun Call.await(): Response = suspendCancellableCoroutine { c ->
-        c.invokeOnCancellation { cancel() }
-        enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { if (!c.isCancelled) c.resumeWithException(e) }
-            override fun onResponse(call: Call, response: Response) { c.resume(response) }
-        })
+    /** 60 s to read: a long prompt or a big session list still arrives. */
+    private val http by lazy { newClient(connectMs = 5_000, socketMs = 60_000, requestMs = 60_000) }
+
+    /**
+     * SSE: the server sends a heartbeat every 10 s, so 30 s of silence means a
+     * dropped connection and the caller reconnects. No overall request timeout,
+     * or the stream would be cut on a schedule.
+     */
+    private val streamHttp by lazy {
+        // Long.MAX_VALUE is Ktor's own "infinite" request timeout.
+        newClient(connectMs = 5_000, socketMs = 30_000, requestMs = Long.MAX_VALUE)
+    }
+
+    /** For readiness polling: a short timeout so a stuck request doesn't delay the next try. */
+    private val healthHttp by lazy { newClient(connectMs = 2_000, socketMs = 2_000, requestMs = 2_000) }
+
+    /** Device-code sign-in waits for the user to confirm in the browser, hence the long timeout. */
+    private val longHttp by lazy { newClient(connectMs = 5_000, socketMs = 600_000, requestMs = Long.MAX_VALUE) }
+
+    private fun authHeader(password: String) = "Basic " + base64("opencode:$password")
+
+    private fun urlFor(path: String, query: Map<String, String?> = emptyMap()): String = buildString {
+        append(endpoint().url.trimEnd('/')).append(path)
+        var first = true
+        query.forEach { (k, v) ->
+            if (v != null) {
+                append(if (first) '?' else '&')
+                append(k.encodeURLParameter()).append('=').append(v.encodeURLParameter())
+                first = false
+            }
+        }
     }
 
     private suspend fun call(
@@ -69,14 +103,19 @@ class OpenCodeApi(private val prefs: Prefs) {
         query: Map<String, String?> = emptyMap(),
         body: JsonElement? = null,
     ): JsonElement? {
-        val rb = body?.let { OcJson.encodeToString(JsonElement.serializer(), it).toRequestBody(jsonType) }
-            ?: if (method == "GET" || method == "DELETE" && body == null) null else "{}".toRequestBody(jsonType)
-        val req = request(path, query).method(method, rb).build()
-        return http.newCall(req).await().use { r ->
-            val text = withContext(Dispatchers.IO) { r.body.string() }
-            if (!r.isSuccessful) throw ApiException(r.code, errorText(text, r.code))
-            if (text.isBlank()) null else runCatching { OcJson.parseToJsonElement(text) }.getOrNull()
+        val payload = body?.let { OcJson.encodeToString(JsonElement.serializer(), it) }
+            ?: if (method == "GET" || method == "DELETE") null else "{}"
+        val res = http.request(urlFor(path, query)) {
+            this.method = HttpMethod.parse(method)
+            header(HttpHeaders.Authorization, authHeader(password))
+            if (payload != null) {
+                header(HttpHeaders.ContentType, "application/json")
+                setBody(payload)
+            }
         }
+        val text = res.bodyAsText()
+        if (!res.status.isSuccess()) throw ApiException(res.status.value, errorText(text, res.status.value))
+        return if (text.isBlank()) null else runCatching { OcJson.parseToJsonElement(text) }.getOrNull()
     }
 
     private fun errorText(body: String, code: Int): String {
@@ -87,26 +126,28 @@ class OpenCodeApi(private val prefs: Prefs) {
 
     private fun dir(d: String?) = mapOf("directory" to d)
 
+    /** One GET against a given address, for the reachability and readiness probes. */
+    private suspend fun probeGet(client: HttpClient, url: String, pw: String): Pair<Int, String> {
+        val res = client.get(url) { header(HttpHeaders.Authorization, authHeader(pw)) }
+        return res.status.value to res.bodyAsText()
+    }
+
     // ---------- server ----------
 
-    /** For readiness polling: a short timeout so a stuck request doesn't delay the next try. */
-    private val healthHttp by lazy { http.newBuilder().callTimeout(2, TimeUnit.SECONDS).build() }
-
-    suspend fun healthVersionOrThrow(): String? = healthHttp.newCall(request("/global/health").build()).await().use { r ->
-        val text = withContext(Dispatchers.IO) { r.body.string() }
-        if (!r.isSuccessful) throw ApiException(r.code, "health ${r.code}")
-        (runCatching { OcJson.parseToJsonElement(text) as? JsonObject }.getOrNull())?.takeIf { it.bool("healthy") == true }?.str("version")
+    suspend fun healthVersionOrThrow(): String? {
+        val (code, text) = probeGet(healthHttp, urlFor("/global/health"), password)
+        if (code !in 200..299) throw ApiException(code, "health $code")
+        return (runCatching { OcJson.parseToJsonElement(text) as? JsonObject }.getOrNull())
+            ?.takeIf { it.bool("healthy") == true }?.str("version")
     }
 
     /** Checks another server before switching to it: does it answer and does the password fit. null means fine, otherwise the reason. */
     suspend fun reachable(url: String, password: String): String? = try {
-        val req = Request.Builder().url("$url/global/health").header("Authorization", Credentials.basic("opencode", password)).build()
-        healthHttp.newBuilder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(4, TimeUnit.SECONDS).build().newCall(req).await().use { r ->
-            when {
-                r.code == 401 -> "Wrong password"
-                !r.isSuccessful -> "Server answered ${r.code}"
-                else -> null
-            }
+        val (code, _) = probeGet(healthHttp, url.trimEnd('/') + "/global/health", password)
+        when {
+            code == 401 -> "Wrong password"
+            code !in 200..299 -> "Server answered $code"
+            else -> null
         }
     } catch (e: Exception) { "Not reachable — is it on, on the same network, and is `opencode serve` running?" }
 
@@ -116,14 +157,11 @@ class OpenCodeApi(private val prefs: Prefs) {
 
     /** Checks a remote server's address and password before saving; returns the OpenCode version or throws with the reason. */
     suspend fun probe(url: String, password: String): String {
-        val req = Request.Builder().url(url.trimEnd('/') + "/global/health").header("Authorization", Credentials.basic("opencode", password)).build()
-        return http.newCall(req).await().use { r ->
-            val text = withContext(Dispatchers.IO) { r.body.string() }
-            when {
-                r.code == 401 -> throw ApiException(401, "Wrong password")
-                !r.isSuccessful -> throw ApiException(r.code, "Server answered ${r.code}")
-                else -> (runCatching { OcJson.parseToJsonElement(text) as? JsonObject }.getOrNull())?.str("version") ?: "unknown"
-            }
+        val (code, text) = probeGet(http, url.trimEnd('/') + "/global/health", password)
+        return when {
+            code == 401 -> throw ApiException(401, "Wrong password")
+            code !in 200..299 -> throw ApiException(code, "Server answered $code")
+            else -> (runCatching { OcJson.parseToJsonElement(text) as? JsonObject }.getOrNull())?.str("version") ?: "unknown"
         }
     }
 
@@ -151,7 +189,7 @@ class OpenCodeApi(private val prefs: Prefs) {
     }
 
     suspend fun archiveSession(id: String, directory: String?) {
-        call("PATCH", "/session/$id", dir(directory), buildJsonObject { putJsonObject("time") { put("archived", System.currentTimeMillis()) } })
+        call("PATCH", "/session/$id", dir(directory), buildJsonObject { putJsonObject("time") { put("archived", nowMillis()) } })
     }
 
     suspend fun setSessionPermission(id: String, directory: String?, rules: JsonArray) {
@@ -262,20 +300,47 @@ class OpenCodeApi(private val prefs: Prefs) {
             if (inputs.isNotEmpty()) putJsonObject("inputs") { inputs.forEach { (k, v) -> put(k, v) } }
         }) as? JsonObject ?: JsonObject(emptyMap())
 
-    /** Device-code sign-in waits for the user to confirm in the browser, hence the long timeout. */
-    private val longHttp by lazy { http.newBuilder().readTimeout(10, TimeUnit.MINUTES).callTimeout(0, TimeUnit.MILLISECONDS).build() }
-
     suspend fun oauthCallback(providerId: String, method: Int, code: String?) {
-        val body = OcJson.encodeToString(JsonElement.serializer(), buildJsonObject { put("method", method); code?.let { put("code", it) } }).toRequestBody(jsonType)
-        val req = request("/provider/$providerId/oauth/callback").post(body).build()
-        longHttp.newCall(req).await().use { r ->
-            val text = withContext(Dispatchers.IO) { r.body.string() }
-            if (!r.isSuccessful) throw ApiException(r.code, errorText(text, r.code))
+        val payload = OcJson.encodeToString(JsonElement.serializer(), buildJsonObject { put("method", method); code?.let { put("code", it) } })
+        val res = longHttp.request(urlFor("/provider/$providerId/oauth/callback")) {
+            this.method = HttpMethod.Post
+            header(HttpHeaders.Authorization, authHeader(password))
+            header(HttpHeaders.ContentType, "application/json")
+            setBody(payload)
         }
+        val text = res.bodyAsText()
+        if (!res.status.isSuccess()) throw ApiException(res.status.value, errorText(text, res.status.value))
     }
 
     /** After keys change, instances must be recreated to see the new providers. */
     suspend fun disposeAll() { call("POST", "/global/dispose") }
+
+    // ---------- server-sent events ----------
+
+    /**
+     * Reads `/global/event` until the stream ends or the caller cancels.
+     * [onOpen] runs when the server accepts the stream; [onLine] gets every line
+     * of it (including the blank ones that separate events).
+     */
+    suspend fun streamLines(
+        path: String,
+        query: Map<String, String?> = emptyMap(),
+        onOpen: suspend () -> Unit,
+        onLine: suspend (String) -> Unit,
+    ) {
+        streamHttp.prepareGet(urlFor(path, query)) {
+            header(HttpHeaders.Authorization, authHeader(password))
+            header(HttpHeaders.Accept, "text/event-stream")
+        }.execute { res ->
+            if (!res.status.isSuccess()) return@execute
+            onOpen()
+            val channel: ByteReadChannel = res.bodyAsChannel()
+            while (true) {
+                val line = channel.readUTF8Line() ?: break
+                onLine(line)
+            }
+        }
+    }
 
     // ---------- config, agents, MCP ----------
 

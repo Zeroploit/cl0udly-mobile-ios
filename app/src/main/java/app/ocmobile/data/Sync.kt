@@ -24,6 +24,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
@@ -48,7 +49,7 @@ object Sync {
         private set
     private val lock = Mutex()
     private val prefs get() = Graph.prefs
-    private val http get() = Graph.api.http.newBuilder().connectTimeout(3, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
+    private val http get() = OkHttpClient.Builder().connectTimeout(3, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
 
     /** Home Wi-Fi coming up, and every 15 minutes while the app lives. */
     fun start(ctx: Context) {

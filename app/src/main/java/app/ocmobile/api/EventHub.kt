@@ -51,26 +51,24 @@ class EventHub(private val api: OpenCodeApi, private val runtime: RuntimeControl
     }
 
     private suspend fun stream(onOpen: () -> Unit) {
-        val call = api.streamHttp.newCall(api.request("/global/event").header("Accept", "text/event-stream").build())
-        val handle = currentCoroutineContext().job.invokeOnCompletion { call.cancel() }
-        try {
-            call.execute().use { r ->
-                if (!r.isSuccessful) return
+        // kotlinx.coroutines cancels the Ktor call with the coroutine, so there
+        // is no socket to cancel by hand any more.
+        val data = StringBuilder()
+        api.streamLines(
+            path = "/global/event",
+            onOpen = {
                 onOpen()
                 connected.value = true
                 generation.value++
-                val src = r.body.source()
-                val data = StringBuilder()
-                while (true) {
-                    val line = src.readUtf8Line() ?: break
-                    if (line.isEmpty()) {
-                        if (data.isNotEmpty()) { dispatch(data.toString()); data.setLength(0) }
-                    } else if (line.startsWith("data:")) {
-                        data.append(line.removePrefix("data:").removePrefix(" "))
-                    }
+            },
+            onLine = { line ->
+                if (line.isEmpty()) {
+                    if (data.isNotEmpty()) { dispatch(data.toString()); data.setLength(0) }
+                } else if (line.startsWith("data:")) {
+                    data.append(line.removePrefix("data:").removePrefix(" "))
                 }
-            }
-        } finally { handle.dispose() }
+            },
+        )
     }
 
     private fun dispatch(json: String) {

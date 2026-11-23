@@ -19,6 +19,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import okhttp3.Credentials
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.net.ServerSocket
@@ -151,7 +152,7 @@ class OcUpdater(private val rt: RuntimeController, private val scope: CoroutineS
             ),
             File(rt.paths.downloads, "oc-smoke.log"),
         )
-        val http = Graph.api.http.newBuilder().readTimeout(15, TimeUnit.SECONDS).build()
+        val http = OkHttpClient.Builder().readTimeout(15, TimeUnit.SECONDS).build()
         fun get(path: String): String? = runCatching {
             http.newCall(Request.Builder().url("http://127.0.0.1:$port$path").header("Authorization", Credentials.basic("opencode", pass)).build())
                 .execute().use { if (it.isSuccessful) it.body.string() else null }

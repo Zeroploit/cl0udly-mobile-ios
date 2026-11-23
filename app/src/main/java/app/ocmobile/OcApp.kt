@@ -6,6 +6,7 @@ import app.ocmobile.data.I18n
 import android.app.Application
 import app.ocmobile.api.EventHub
 import app.ocmobile.api.OpenCodeApi
+import app.ocmobile.net.ServerEndpoint
 import app.ocmobile.data.Brain
 import app.ocmobile.data.Catalog
 import app.ocmobile.data.LiveNotify
@@ -59,7 +60,13 @@ object Graph {
         I18n.lang = prefs.language
         paths = RuntimePaths(a)
         devices = Devices(prefs)
-        api = OpenCodeApi(prefs)
+        api = OpenCodeApi {
+            val device = devices.active()
+            ServerEndpoint(
+                url = device?.url ?: "http://127.0.0.1:${prefs.serverPort}",
+                password = device?.password ?: prefs.serverPassword,
+            )
+        }
         runtime = RuntimeController(a, paths, prefs, api)
         // people who used the app before the welcome screen existed don't see it again
         if (!prefs.onboarded && paths.rootfsReady && prefs.loginSeen) prefs.onboarded = true
