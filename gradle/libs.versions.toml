@@ -2,6 +2,7 @@
 agp = "9.4.1"
 kotlin = "2.4.20"
 composeBom = "2026.09.00"
+composeMultiplatform = "1.12.2"
 coroutines = "1.11.0"
 serialization = "1.11.0"
 activity = "1.13.0"
@@ -37,5 +38,7 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 # com.android.kotlin.multiplatform.library plugin.
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+# Compose Multiplatform: the same Compose code renders on Android and iOS.
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

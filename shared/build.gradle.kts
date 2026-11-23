@@ -5,6 +5,9 @@ plugins {
     // AGP 9 forbids the Kotlin Multiplatform plugin in a `com.android.application`
     // module, so the Android target of this library comes from Google's plugin.
     alias(libs.plugins.android.kotlin.multiplatform.library)
+    // Compose Multiplatform: the same Compose code renders on Android and iOS.
+    alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.kotlin.compose)
 }
 
 kotlin {
@@ -32,6 +35,10 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            implementation(compose.runtime)
+            implementation(compose.foundation)
+            implementation(compose.material3)
+            implementation(compose.ui)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
         }
