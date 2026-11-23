@@ -1,0 +1,31 @@
+# The migration rule is that the Android app stays shippable after every step.
+# This job is that check: it compiles the real app on every push.
+name: Android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The shared module is on the app's classpath, so this compiles both.
+      - name: Build the debug APK
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Run the shared tests
+        run: ./gradlew --no-daemon :shared:jvmTest
