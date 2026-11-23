@@ -60,13 +60,15 @@ object Graph {
         I18n.lang = prefs.language
         paths = RuntimePaths(a)
         devices = Devices(prefs)
-        api = OpenCodeApi {
+        // Named, not trailing: the trailing lambda would land on the last
+        // parameter (the engine factory), not on the endpoint.
+        api = OpenCodeApi(endpoint = {
             val device = devices.active()
             ServerEndpoint(
                 url = device?.url ?: "http://127.0.0.1:${prefs.serverPort}",
                 password = device?.password ?: prefs.serverPassword,
             )
-        }
+        })
         runtime = RuntimeController(a, paths, prefs, api)
         // people who used the app before the welcome screen existed don't see it again
         if (!prefs.onboarded && paths.rootfsReady && prefs.loginSeen) prefs.onboarded = true
