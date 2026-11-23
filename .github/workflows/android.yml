@@ -1,5 +1,9 @@
 # The migration rule is that the Android app stays shippable after every step.
 # This job is that check: it compiles the real app on every push.
+#
+# No android-actions/setup-android here on purpose: ubuntu-latest already ships
+# the Android SDK with the licenses accepted, and the action pins an old
+# cmdline-tools (12266719) whose sdkmanager fails under JDK 21.
 name: Android
 
 on:
@@ -14,12 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
-
-      - uses: android-actions/setup-android@v3
 
       - uses: gradle/actions/setup-gradle@v4
 
