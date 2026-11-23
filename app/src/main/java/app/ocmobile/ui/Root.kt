@@ -1,0 +1,479 @@
+package app.ocmobile.ui
+
+import app.ocmobile.ui.components.trackTouches
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import app.ocmobile.Graph
+import app.ocmobile.runtime.RuntimeState
+import app.ocmobile.ui.components.Spinner
+import app.ocmobile.ui.components.Ico
+import app.ocmobile.ui.components.Txt
+import app.ocmobile.ui.screens.CapabilitiesScreen
+import app.ocmobile.ui.screens.OcSettingsScreen
+import app.ocmobile.ui.screens.AppearanceScreen
+import app.ocmobile.ui.screens.AboutScreen
+import app.ocmobile.ui.screens.AgentsScreen
+import app.ocmobile.ui.screens.EditionScreen
+import app.ocmobile.ui.screens.ChatScreen
+import app.ocmobile.ui.screens.ConfigEditorScreen
+import app.ocmobile.ui.screens.ArtifactsScreen
+import app.ocmobile.ui.screens.ConnectScreen
+import app.ocmobile.ui.screens.MemoryScreen
+import app.ocmobile.ui.screens.ConsoleLoginScreen
+import app.ocmobile.ui.screens.LoginScreen
+import app.ocmobile.ui.screens.CodeScreen
+import app.ocmobile.ui.screens.ScheduledScreen
+import app.ocmobile.ui.screens.ConnectorsScreen
+import app.ocmobile.ui.screens.DrawerContent
+import app.ocmobile.ui.screens.HomeScreen
+import app.ocmobile.ui.screens.ModelsScreen
+import app.ocmobile.ui.screens.PermissionsScreen
+import app.ocmobile.ui.screens.ProfileScreen
+import app.ocmobile.ui.screens.ProjectsScreen
+import app.ocmobile.ui.screens.ProvidersScreen
+import app.ocmobile.ui.screens.RecentsScreen
+import app.ocmobile.ui.screens.ServerScreen
+import app.ocmobile.ui.screens.SettingsScreen
+import app.ocmobile.ui.screens.SetupScreen
+import app.ocmobile.ui.screens.SkillsScreen
+import app.ocmobile.ui.screens.UsageScreen
+import app.ocmobile.ui.theme.Oc
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private const val DRAWER_WIDTH = 0.94f
+private const val DRAWER_SHRINK = 0.08f
+private const val DRAWER_CORNER = 28f
+
+@Composable
+fun OcRoot() {
+    val c = Oc.c
+    val view = LocalView.current
+    SideEffect {
+        val w = (view.context as? android.app.Activity)?.window ?: return@SideEffect
+        WindowCompat.getInsetsController(w, view).apply {
+            isAppearanceLightStatusBars = !c.isDark
+            isAppearanceLightNavigationBars = !c.isDark
+        }
+    }
+    val rt by Graph.runtime.state.collectAsState()
+    // where the finger last went down: cl0udly's windows open right there
+    Box(Modifier.fillMaxSize().background(c.bg).then(Modifier.trackTouches())) {
+        if (rt is RuntimeState.NotInstalled || rt is RuntimeState.Installing || rt is RuntimeState.InstallFailed) SetupScreen(rt)
+        else { Shell(rt); app.ocmobile.ui.components.UpdateHost() }
+        // the welcome tour sits on top of the app and takes all touches: nothing underneath can be pressed
+        if (!Graph.prefs.onboarded) Box(Modifier.fillMaxSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }) {
+            app.ocmobile.ui.screens.Onboarding()
+        }
+        app.ocmobile.ui.components.IntroHost()
+        ToastHost()
+        UndoHost()
+    }
+}
+
+@Composable
+private fun Shell(rt: RuntimeState) {
+    val c = Oc.c
+    val nav = remember { app.ocmobile.ui.NavMemory.nav }
+    val openReq by Graph.chats.openRequest.collectAsState()
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(openReq) {
+        openReq?.let { r ->
+            when (r) {
+                "route:settings" -> { drawer.close(); nav.root(Route.Settings) }
+                "route:home" -> { drawer.close(); nav.root(Route.Home) }
+                "route:code" -> { drawer.close(); nav.root(Route.Code) }
+                "route:about" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.About) }
+                "route:memory" -> { drawer.close(); nav.root(Route.Memory) }
+                "route:drawer" -> drawer.open()
+                "route:onboarding" -> Graph.prefs.onboarded = false
+                "route:onboarded" -> Graph.prefs.onboarded = true
+                "route:github" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.GitHub) }
+                "route:backup" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.Backup) }
+                "route:skills" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.Skills) }
+                "route:phone" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.PhoneTools) }
+                "route:intro" -> app.ocmobile.ui.components.Intro.replay.intValue++
+                else -> if (r.startsWith("route:connect:")) { drawer.close(); nav.push(Route.Connect(r.removePrefix("route:connect:"))) }
+                    else if (r.startsWith("route:console:")) { drawer.close(); nav.push(Route.ConsoleLogin(r.removePrefix("route:console:"))) }
+                    else if (r.startsWith("route:preview:")) { drawer.close(); nav.push(Route.Preview(r.removePrefix("route:preview:"), (nav.current as? Route.Chat)?.id)) }
+                    else if (!r.startsWith("route:")) nav.openChat(r)
+            }
+            Graph.chats.openRequest.value = null
+        }
+    }
+    val open = { scope.launch { drawer.open() }; Unit }
+
+    // How far the drawer is out, 0..1: the screen behind follows it to the right and shrinks a little.
+    var screenW by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val sheetW = screenW * DRAWER_WIDTH
+    fun drawerProgress(): Float {
+        val off = drawer.currentOffset
+        return if (sheetW <= 0f || off.isNaN()) (if (drawer.isOpen) 1f else 0f) else (1f + off / sheetW).coerceIn(0f, 1f)
+    }
+    // the keyboard goes away as soon as the drawer starts to come out, not after it's open
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(drawer, sheetW) {
+        snapshotFlow { drawerProgress() > 0.02f }.collect { out -> if (out) { keyboard?.hide(); focus.clearFocus(force = true) } }
+    }
+    // the mascot on the home screen watches the menu come out (rounded so it doesn't redraw every pixel)
+    LaunchedEffect(drawer, sheetW) {
+        snapshotFlow { (drawerProgress() * 20).toInt() / 20f }.collect { app.ocmobile.ui.components.MascotSignals.drawer = it }
+    }
+
+    // The server starts by itself when the app opens.
+    var autostarted by remember { mutableStateOf(false) }
+    LaunchedEffect(rt) {
+        if (!autostarted && rt is RuntimeState.Stopped && Graph.prefs.autoStartServer) { autostarted = true; Graph.runtime.startServer() }
+    }
+    LaunchedEffect(rt is RuntimeState.Running) {
+        if (rt is RuntimeState.Running) { Graph.catalog.refresh(); Graph.chats.refreshSessions() }
+    }
+    // First launch after the environment is installed: offer to sign in (can be skipped).
+    LaunchedEffect(Unit) {
+        if (Graph.prefs.onboarded && !Graph.prefs.loginSeen && Graph.prefs.signedIn.isBlank()) { kotlinx.coroutines.delay(500); nav.push(Route.Login) }
+    }
+
+    BackHandler(drawer.isOpen || nav.stack.size > 1 || nav.current != Route.Home) {
+        if (drawer.isOpen) scope.launch { drawer.close() } else nav.pop()
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawer,
+        // the swipe opens the drawer only on the home screen and in a chat (elsewhere it would fight with
+        // scrolling, pages and back); while a finger is on the mascot it doesn't either: it's being petted and pulled
+        gesturesEnabled = drawer.isOpen || (drawerSwipe(nav.current) && !app.ocmobile.ui.components.MascotGrab.held),
+        drawerContent = {
+            ModalDrawerSheet(drawerContainerColor = c.bg, drawerShape = RectangleShape, windowInsets = WindowInsets(0), modifier = Modifier.fillMaxWidth(DRAWER_WIDTH)) {
+                DrawerContent(nav) { scope.launch { drawer.close() } }
+            }
+        },
+    ) {
+        Box(
+            Modifier.fillMaxSize().onSizeChanged { screenW = it.width.toFloat() }.graphicsLayer {
+                val p = drawerProgress()
+                if (p > 0f) {
+                    // pushed right next to the drawer, shrunk from the left edge, with rounded corners
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                    translationX = sheetW * p
+                    scaleX = 1f - DRAWER_SHRINK * p; scaleY = scaleX
+                    shape = RoundedCornerShape((DRAWER_CORNER * p).dp)
+                    clip = true
+                }
+            },
+        ) {
+            // back by swiping from the left edge (targetSdk 28 has no system predictive back). Only on screens
+            // with a back arrow: on home and in chats a swipe from the edge opens the drawer.
+            val back = remember { androidx.compose.animation.core.Animatable(0f) }
+            val prev = nav.previous
+            val swipeable = nav.stack.size > 1 && nav.current !is Route.Chat && !drawer.isOpen
+            if (back.value > 0f && prev != null) {
+                val k = (back.value / screenW.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                Box(
+                    Modifier.fillMaxSize()
+                        .graphicsLayer { translationX = -screenW * 0.25f * (1f - k) }
+                        .drawWithContent { drawContent(); drawRect(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.22f * (1f - k))) },
+                ) { ScreenFrame { RouteContent(prev, nav, open) } }
+            }
+            AnimatedContent(
+                modifier = Modifier.graphicsLayer { translationX = back.value },
+                targetState = nav.current,
+                transitionSpec = {
+                    when {
+                        nav.direction == 3 -> androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                        nav.direction == 2 -> fadeIn(tween(120)) togetherWith fadeOut(tween(120))
+                        // fast: the screen slides in within ~200 ms with a sharp start and a soft stop;
+                        // the one underneath moves a quarter of the way (parallax) and dims
+                        nav.direction > 0 -> (slideInHorizontally(tween(210, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) { it / 5 } + fadeIn(tween(150))) togetherWith
+                            (slideOutHorizontally(tween(210)) { -it / 4 } + fadeOut(tween(160, delayMillis = 50)))
+                        nav.direction < 0 -> (slideInHorizontally(tween(200, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) { -it / 4 } + fadeIn(tween(150))) togetherWith
+                            (slideOutHorizontally(tween(200)) { it / 5 } + fadeOut(tween(110)))
+                        // from the side menu (chat → settings and back): the new screen rises a little out of
+                        // the old one as it fades in, the old one fades and grows slightly away
+                        else -> (fadeIn(tween(160)) + androidx.compose.animation.scaleIn(tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing), initialScale = 0.95f) +
+                            androidx.compose.animation.slideInVertically(tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it / 30 }) togetherWith
+                            (fadeOut(tween(110)) + androidx.compose.animation.scaleOut(tween(160), targetScale = 1.03f))
+                    }
+                },
+                label = "nav",
+            ) { r ->
+                // the screen underneath shifts a quarter and dims a little, like a stack of cards
+                val dim by transition.animateFloat({ tween(210) }, label = "dim") { st ->
+                    when {
+                        st == androidx.compose.animation.EnterExitState.PostExit && nav.direction == 1 -> 0.22f
+                        st == androidx.compose.animation.EnterExitState.PreEnter && nav.direction == -1 -> 0.22f
+                        else -> 0f
+                    }
+                }
+                Box(Modifier.fillMaxSize().drawWithContent { drawContent(); if (dim > 0f) drawRect(androidx.compose.ui.graphics.Color.Black.copy(alpha = dim)) }) {
+                    ScreenFrame { RouteContent(r, nav, open) }
+                }
+            }
+            if (swipeable) Box(
+                Modifier.align(Alignment.CenterStart).fillMaxHeight().width(20.dp).pointerInput(nav.current) {
+                    val vt = androidx.compose.ui.input.pointer.util.VelocityTracker()
+                    detectHorizontalDragGestures(
+                        onDragStart = { vt.resetTracking() },
+                        onDragEnd = {
+                            val v = vt.calculateVelocity().x
+                            scope.launch {
+                                if (back.value > screenW * 0.35f || v > 1200f) {
+                                    back.animateTo(screenW, tween(160, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                                    nav.popAfterSwipe()
+                                    back.snapTo(0f)
+                                } else back.animateTo(0f, androidx.compose.animation.core.spring(0.85f, androidx.compose.animation.core.Spring.StiffnessMedium))
+                            }
+                        },
+                        onDragCancel = { scope.launch { back.animateTo(0f, tween(160)) } },
+                    ) { change, dx ->
+                        change.consume()
+                        vt.addPosition(change.uptimeMillis, change.position)
+                        scope.launch { back.snapTo((back.value + dx).coerceIn(0f, screenW)) }
+                    }
+                },
+            )
+            val cur = nav.current
+            if (cur == Route.Home || cur == Route.NewCode || cur == Route.Code || cur is Route.Chat) ServerBanner(rt)
+        }
+    }
+    ConnectPrompt(nav)
+    app.ocmobile.ui.components.HelperHost()
+    app.ocmobile.ui.components.FileViewerHost()
+}
+
+/** A screen on its background, no wider than 720 dp on tablets and in landscape (phones are unchanged). */
+/** Screens where a swipe from the left pulls out the side menu. */
+private fun drawerSwipe(r: Route) = r == Route.Home || r == Route.NewCode || r is Route.Chat
+
+@Composable
+private fun ScreenFrame(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Oc.c.bg), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.widthIn(max = 720.dp).fillMaxSize()) { content() }
+    }
+}
+
+@Composable
+private fun RouteContent(r: Route, nav: Nav, open: () -> Unit) {
+    when (r) {
+        Route.Home -> HomeScreen(nav, open)
+        Route.NewCode -> HomeScreen(nav, open, code = true)
+        Route.Memory -> MemoryScreen(nav)
+        Route.Edition -> EditionScreen(nav)
+        is Route.Chat -> ChatScreen(r.id, nav, open)
+        Route.Login -> LoginScreen(nav)
+        is Route.ConsoleLogin -> ConsoleLoginScreen(r.method, nav)
+        is Route.Connect -> ConnectScreen(r.providerId, nav)
+        Route.Code -> CodeScreen(nav, open)
+        Route.Artifacts -> ArtifactsScreen(nav, open)
+        Route.Scheduled -> ScheduledScreen(nav, open)
+        Route.Recents -> RecentsScreen(nav, open)
+        Route.Projects -> ProjectsScreen(nav, open)
+        Route.Settings -> SettingsScreen(nav, open)
+        Route.Usage -> UsageScreen(nav)
+        Route.Profile -> ProfileScreen(nav)
+        Route.Providers -> ProvidersScreen(nav)
+        Route.Models -> ModelsScreen(nav)
+        Route.PermissionsCfg -> PermissionsScreen(nav)
+        Route.Connectors -> ConnectorsScreen(nav)
+        Route.Agents -> AgentsScreen(nav)
+        Route.Skills -> SkillsScreen(nav)
+        is Route.SkillEdit -> app.ocmobile.ui.screens.SkillEditScreen(r.name, nav)
+        Route.Server -> ServerScreen(nav)
+        Route.ConfigEditor -> ConfigEditorScreen(nav)
+        Route.About -> AboutScreen(nav)
+        Route.Capabilities -> CapabilitiesScreen(nav)
+        Route.OcSettings -> OcSettingsScreen(nav)
+        Route.Appearance -> AppearanceScreen(nav)
+        Route.SideMenu -> app.ocmobile.ui.screens.SideMenuScreen(nav)
+        Route.PhoneTools -> app.ocmobile.ui.screens.PhoneToolsScreen(nav)
+        Route.GitHub -> app.ocmobile.ui.screens.GitHubScreen(nav)
+        Route.Backup -> app.ocmobile.ui.screens.BackupScreen(nav)
+        Route.Team -> app.ocmobile.ui.screens.TeamScreen(nav)
+        Route.Mascot -> app.ocmobile.ui.screens.MascotRoom(nav)
+        Route.MascotSettings -> app.ocmobile.ui.screens.MascotSettings(nav)
+        is Route.Preview -> app.ocmobile.ui.screens.PreviewScreen(r.url, r.sessionId, nav)
+    }}
+
+/** A QR code or a cl0udly://connect link: ask whether to connect, then connect. */
+@Composable
+private fun ConnectPrompt(nav: Nav) {
+    val c = Oc.c
+    val o = app.ocmobile.data.ConnectLink.pending ?: return
+    val scope = rememberCoroutineScope()
+    var busy by remember(o) { mutableStateOf(false) }
+    var error by remember(o) { mutableStateOf<String?>(null) }
+    app.ocmobile.ui.components.OcDialog(
+        "Connect to ${o.name.ifBlank { "this computer" }}?",
+        onDismiss = { if (!busy) app.ocmobile.data.ConnectLink.pending = null },
+        confirmText = if (busy) "Connecting…" else "Connect",
+        onConfirm = {
+            if (busy) return@OcDialog
+            busy = true; error = null
+            scope.launch {
+                try {
+                    app.ocmobile.data.ConnectLink.accept(o)
+                    app.ocmobile.data.ConnectLink.pending = null
+                    nav.root(Route.Code)
+                    o.session?.let { nav.openChat(it) }
+                    Graph.chats.toasts.tryEmit("Connected to ${o.name.ifBlank { "your computer" }}")
+                } catch (e: Exception) {
+                    error = e.message?.takeIf { it.isNotBlank() } ?: "Can't reach the computer"
+                } finally { busy = false }
+            }
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Txt("OpenCode on it will work from this phone: chats, code and files.", size = 15.sp, color = c.textDim, lineHeight = 21.sp)
+            Txt(o.url, size = 13.sp, family = Oc.mono, color = c.textDim)
+            error?.let { Txt(it, size = 14.sp, color = c.danger) }
+        }
+    }
+}
+
+@Composable
+private fun ServerBanner(rt: RuntimeState) {
+    val c = Oc.c
+    val remoteId by Graph.devices.activeId.collectAsState()
+    val connected by Graph.events.connected.collectAsState()
+    val online = rememberOnline()
+    // the event stream dropped while the server runs: say so only if it doesn't come back at once
+    var lost by remember { mutableStateOf(false) }
+    LaunchedEffect(connected, rt) { lost = false; if (!connected && rt is RuntimeState.Running) { delay(2500); lost = true } }
+    // For a remote device the local server's state doesn't matter; what matters is whether we can reach it.
+    val show = !online || (if (remoteId.isNotEmpty()) !connected else rt is RuntimeState.Starting || rt is RuntimeState.Crashed || rt is RuntimeState.Stopped || lost)
+    Box(Modifier.fillMaxSize().statusBarsPadding().padding(top = 60.dp), contentAlignment = Alignment.TopCenter) {
+        AnimatedVisibility(show) {
+            Row(
+                Modifier.padding(horizontal = 16.dp).clip(Oc.pill).background(c.surfaceHigh).border(1.dp, c.border, Oc.pill)
+                    .clickable(enabled = remoteId.isEmpty() && rt !is RuntimeState.Starting) {
+                        if (Graph.paths.localSupported) Graph.runtime.startServer() else Graph.chats.openRequest.value = "route:code"
+                    }.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!online) { Ico(app.ocmobile.ui.theme.Ic.Globe, tint = c.textDim, size = 16.dp); Spacer(Modifier.width(10.dp)); Txt("No internet. Replies go on when it's back.", size = 14.sp, color = c.textDim) }
+                else if (remoteId.isNotEmpty()) { Spinner(16.dp, stroke = 2.dp); Spacer(Modifier.width(10.dp)); Txt("Reconnecting to ${Graph.devices.active()?.name ?: "the computer"}…", size = 14.sp, color = c.textDim) }
+                else if (lost && rt is RuntimeState.Running) { Spinner(16.dp, stroke = 2.dp); Spacer(Modifier.width(10.dp)); Txt("Reconnecting…", size = 14.sp, color = c.textDim) }
+                else when (rt) {
+                    is RuntimeState.Starting -> { Spinner(16.dp, stroke = 2.dp); Spacer(Modifier.width(10.dp)); Txt("Starting local server…", size = 14.sp) }
+                    is RuntimeState.Crashed -> Txt("Server crashed — tap to restart", size = 14.sp, color = c.danger)
+                    else -> if (!Graph.paths.localSupported) Txt("This phone can't run OpenCode — tap to connect a computer", size = 14.sp, color = c.textDim)
+                        else Txt("Server stopped — tap to start", size = 14.sp, color = c.textDim)
+                }
+            }
+        }
+    }
+}
+
+/** "Chat deleted · Undo" at the bottom for a few seconds after a delete. */
+@Composable
+private fun UndoHost() {
+    val c = Oc.c
+    val u by Graph.chats.undo.collectAsState()
+    Box(Modifier.fillMaxSize().navigationBarsPadding().padding(bottom = 120.dp), contentAlignment = Alignment.BottomCenter) {
+        AnimatedVisibility(u != null, enter = androidx.compose.animation.fadeIn(tween(120)) + androidx.compose.animation.slideInVertically(tween(160)) { it / 2 },
+            exit = androidx.compose.animation.fadeOut(tween(100))) {
+            var last by remember { mutableStateOf(u) }
+            if (u != null) last = u
+            Row(
+                Modifier.padding(horizontal = 24.dp).clip(Oc.round(20.dp)).background(c.text).padding(start = 18.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Txt(last?.text.orEmpty(), size = 15.sp, color = c.bg)
+                Spacer(Modifier.width(14.dp))
+                Box(Modifier.clip(Oc.round(14.dp)).clickable { last?.undo?.invoke(); Graph.chats.undo.value = null }.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Txt("Undo", size = 15.sp, color = c.bg, weight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToastHost() {
+    val c = Oc.c
+    var msg by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        Graph.chats.toasts.collect { msg = it; delay(3500); msg = null }
+    }
+    Box(Modifier.fillMaxSize().navigationBarsPadding().padding(bottom = 120.dp), contentAlignment = Alignment.BottomCenter) {
+        AnimatedVisibility(msg != null) {
+            Box(Modifier.padding(horizontal = 24.dp).clip(Oc.round(20.dp)).background(c.text).padding(horizontal = 18.dp, vertical = 12.dp)) {
+                Txt(msg.orEmpty(), size = 15.sp, color = c.bg, maxLines = 4)
+            }
+        }
+    }
+}
+
+/** Whether the phone has a working internet connection right now, following Android's default network. */
+@Composable
+private fun rememberOnline(): Boolean {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val cm = remember { ctx.getSystemService(android.net.ConnectivityManager::class.java) }
+    fun now() = cm?.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+    var online by remember { mutableStateOf(now()) }
+    androidx.compose.runtime.DisposableEffect(cm) {
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(n: android.net.Network) { online = true }
+            override fun onLost(n: android.net.Network) { online = now() }
+        }
+        runCatching { cm?.registerDefaultNetworkCallback(cb) }
+        onDispose { runCatching { cm?.unregisterNetworkCallback(cb) } }
+    }
+    return online
+}

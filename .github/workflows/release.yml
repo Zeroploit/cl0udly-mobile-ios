@@ -1,0 +1,69 @@
+# Release on tag: v0.0.1-beta-3 → build the APK, sign it with the same key as earlier versions, publish to Releases.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v0.0.1-beta-3"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Signing key from a secret: without the same key the update will not install over the existing app.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          test -n "$KEYSTORE_B64" || { echo "SIGNING_KEYSTORE_B64 secret is missing"; exit 1; }
+          mkdir -p ~/.android
+          echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+
+      - name: Build
+        run: |
+          ./gradlew --no-daemon :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk main.apk
+          # 32-bit phones: no proot (OpenCode is arm64 only), the app only connects to a computer
+          ./gradlew --no-daemon :app:assembleRelease -Pabi=armeabi-v7a
+          cp app/build/outputs/apk/release/app-release.apk armv7.apk
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK="cl0udly-mobile-$TAG.apk"
+          cp main.apk "$APK"
+          # zipped: beta-4 and older take the first *.apk of a release as the update
+          V7="cl0udly-mobile-$TAG-armv7.apk"
+          cp armv7.apk "$V7" && zip -q "$V7.zip" "$V7"
+          NOTES="docs/releases/$TAG.md"
+          [ -f "$NOTES" ] || echo "cl0udly $TAG" > "$NOTES"
+          # betas go out as full releases, visible as the latest one (not marked pre-release)
+          PRE=""
+          NAME="${TAG/-beta-/ beta-}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" $PRE --title "$NAME" --notes-file "$NOTES"
+          fi
+          gh release upload "$TAG" "$V7.zip" --clobber
