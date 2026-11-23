@@ -1,0 +1,25 @@
+{
+  "project": "cl0udly",
+  "platform": "ios",
+  "github": {
+    "owner": "Zeroploit",
+    "repo": "cl0udly-mobile-ios"
+  },
+  "provider": "github",
+  "codemagic": {},
+  "bitrise": {},
+  "ios": {
+    "path": "iosApp",
+    "scheme": "iosApp",
+    "bundleId": "app.ocmobile",
+    "configuration": "Debug"
+  },
+  "flutter": {
+    "watch": {}
+  },
+  "reactNative": {},
+  "kmp": {
+    "jdkVersion": "21"
+  },
+  "mobai": {}
+}
