@@ -65,9 +65,12 @@ object ContextUsage {
 
     fun compute(messages: List<ChatMessage>, tools: List<Pair<String, Int>>, window: Long, directory: String?): ContextInfo {
         val infos = messages.map { it.info }
-        val assistants = infos.filter { !it.isUser && it.tokens != null && it.tokens.sum > 0 }
-        val last = assistants.lastOrNull()?.tokens
-        val first = assistants.firstOrNull()?.tokens
+        // The tokens a local val instead of a smart cast on `it.tokens`: the
+        // model now lives in :shared, and Kotlin refuses to smart cast a
+        // property declared in another module.
+        val measuredTokens = infos.filter { !it.isUser }.mapNotNull { i -> i.tokens?.takeIf { it.sum > 0 } }
+        val last = measuredTokens.lastOrNull()
+        val first = measuredTokens.firstOrNull()
 
         val skills = tools.filter { it.first == "skill" }.sumOf { tok(it.second) }
         val system = tools.filter { it.first in builtIn && it.first != "skill" }.sumOf { tok(it.second) }
@@ -92,8 +95,8 @@ object ContextUsage {
             window = window, used = used, buffer = buffer(window), parts = parts,
             messages = infos.size, yours = infos.count { it.isUser },
             cost = infos.sumOf { it.cost ?: 0.0 },
-            tokensIn = assistants.sumOf { it.tokens!!.input + it.tokens.cache.read + it.tokens.cache.write },
-            tokensOut = assistants.sumOf { it.tokens!!.output + it.tokens.reasoning },
+            tokensIn = measuredTokens.sumOf { it.input + it.cache.read + it.cache.write },
+            tokensOut = measuredTokens.sumOf { it.output + it.reasoning },
             measured = last != null,
         )
     }
