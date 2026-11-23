@@ -15,6 +15,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.ocmobile.Graph
 import app.ocmobile.data.Prefs
+import app.ocmobile.data.androidPrefs
 import app.ocmobile.ui.theme.Ic
 import app.ocmobile.ui.theme.LocalOc
 import app.ocmobile.ui.theme.Looks
@@ -22,7 +23,7 @@ import app.ocmobile.ui.theme.Looks
 /** The cl0udly look in one theme, for previews (prefs are made on the spot: there's no app in the preview). */
 @Composable
 private fun CloudPreview(dark: Boolean, content: @Composable () -> Unit) {
-    if (!Graph.isPrefsReady()) Graph.prefs = Prefs(LocalContext.current)
+    if (!Graph.isPrefsReady()) Graph.prefs = androidPrefs(LocalContext.current)
     val colors = if (dark) Looks.cloud.dark else Looks.cloud.light
     CompositionLocalProvider(LocalOc provides colors) {
         Column(Modifier.background(colors.bg).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }

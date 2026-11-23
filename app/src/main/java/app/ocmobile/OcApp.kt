@@ -14,6 +14,7 @@ import app.ocmobile.data.Devices
 import app.ocmobile.data.ChatHub
 import app.ocmobile.data.Memory
 import app.ocmobile.data.Prefs
+import app.ocmobile.data.androidPrefs
 import app.ocmobile.data.Scheduler
 import app.ocmobile.data.UsageTracker
 import app.ocmobile.runtime.RuntimeController
@@ -54,7 +55,7 @@ object Graph {
 
     fun init(a: Application) {
         app = a
-        prefs = Prefs(a)
+        prefs = androidPrefs(a)
         I18n.lang = prefs.language
         paths = RuntimePaths(a)
         devices = Devices(prefs)

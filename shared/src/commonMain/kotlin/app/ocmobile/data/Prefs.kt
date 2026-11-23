@@ -1,43 +1,54 @@
 package app.ocmobile.data
 
-import android.content.Context
-import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import java.security.SecureRandom
+import app.ocmobile.platform.SettingsStore
+import app.ocmobile.platform.randomToken
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
-/** App settings. Each field is Compose state stored in SharedPreferences. */
-class Prefs(ctx: Context) {
-    private val sp: SharedPreferences = ctx.getSharedPreferences("oc", Context.MODE_PRIVATE)
-
+/**
+ * App settings. Each field is Compose state backed by a [SettingsStore]:
+ * `SharedPreferences` ("oc") on Android, `NSUserDefaults` on iOS, a map in tests.
+ *
+ * The Android construction used to be `Prefs(ctx)`; it is now
+ * `androidPrefs(ctx)` in `AndroidPrefs.kt`, which keeps the same file and the
+ * same keys, so existing installs keep their settings.
+ *
+ * [debugBuild] only picks the default local server port. iOS never runs the
+ * server, so it passes false.
+ */
+class Prefs(
+    private val store: SettingsStore,
+    private val debugBuild: Boolean = false,
+) {
     private fun str(key: String, def: String) = object : ReadWriteProperty<Any?, String> {
-        var s by mutableStateOf(sp.getString(key, def) ?: def)
+        var s by mutableStateOf(store.getString(key, def) ?: def)
         override fun getValue(thisRef: Any?, property: KProperty<*>) = s
         override fun setValue(thisRef: Any?, property: KProperty<*>, value: String) {
-            s = value; sp.edit().putString(key, value).apply()
+            s = value; store.putString(key, value)
         }
     }
 
     private fun bool(key: String, def: Boolean) = object : ReadWriteProperty<Any?, Boolean> {
-        var s by mutableStateOf(sp.getBoolean(key, def))
+        var s by mutableStateOf(store.getBoolean(key, def))
         override fun getValue(thisRef: Any?, property: KProperty<*>) = s
         override fun setValue(thisRef: Any?, property: KProperty<*>, value: Boolean) {
-            s = value; sp.edit().putBoolean(key, value).apply()
+            s = value; store.putBoolean(key, value)
         }
     }
 
     private fun lng(key: String, def: Long) = object : ReadWriteProperty<Any?, Long> {
-        override fun getValue(thisRef: Any?, property: KProperty<*>) = sp.getLong(key, def)
-        override fun setValue(thisRef: Any?, property: KProperty<*>, value: Long) { sp.edit().putLong(key, value).apply() }
+        override fun getValue(thisRef: Any?, property: KProperty<*>) = store.getLong(key, def)
+        override fun setValue(thisRef: Any?, property: KProperty<*>, value: Long) { store.putLong(key, value) }
     }
+
     private fun dbl(key: String, def: Double) = object : ReadWriteProperty<Any?, Double> {
-        var s by mutableStateOf(sp.getFloat(key, def.toFloat()).toDouble())
+        var s by mutableStateOf(store.getFloat(key, def.toFloat()).toDouble())
         override fun getValue(thisRef: Any?, property: KProperty<*>) = s
         override fun setValue(thisRef: Any?, property: KProperty<*>, value: Double) {
-            s = value; sp.edit().putFloat(key, value.toFloat()).apply()
+            s = value; store.putFloat(key, value.toFloat())
         }
     }
 
@@ -142,7 +153,7 @@ class Prefs(ctx: Context) {
     var avatarPath by str("avatar_path", "")
 
     // Server
-    var serverPort by str("server_port", if (app.ocmobile.BuildConfig.DEBUG) "4196" else "4096")
+    var serverPort by str("server_port", if (debugBuild) "4196" else "4096")
     var keepAwake by bool("keep_awake", true)
     var autoStartServer by bool("auto_start", true)
     var noSeccomp by bool("no_seccomp", false)
@@ -172,15 +183,8 @@ class Prefs(ctx: Context) {
     var limitProviders by str("limit_providers", "opencode-go")
 
     val serverPassword: String
-        get() {
-            var p = sp.getString("server_password", null)
-            if (p == null) {
-                val chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-                val r = SecureRandom()
-                p = (1..32).map { chars[r.nextInt(chars.length)] }.joinToString("")
-                sp.edit().putString("server_password", p).apply()
-            }
-            return p
+        get() = store.getString("server_password", null) ?: randomToken(32).also {
+            store.putString("server_password", it)
         }
 
     fun pinnedSet(): Set<String> = pinned.split(',').filter { it.isNotBlank() }.toSet()
@@ -199,13 +203,13 @@ class Prefs(ctx: Context) {
     }
 
     /** What you were typing in a chat, kept until you send it or erase it. */
-    fun draft(sessionId: String): String = sp.getString("draft_$sessionId", null).orEmpty()
+    fun draft(sessionId: String): String = store.getString("draft_$sessionId", null).orEmpty()
     fun setDraft(sessionId: String, text: String) {
-        sp.edit().apply { if (text.isBlank()) remove("draft_$sessionId") else putString("draft_$sessionId", text) }.apply()
+        if (text.isBlank()) store.remove("draft_$sessionId") else store.putString("draft_$sessionId", text)
     }
 
-    fun setDir(deviceId: String, dir: String) { sp.edit().putString("dir_$deviceId", dir).apply() }
-    fun getDir(deviceId: String): String? = sp.getString("dir_$deviceId", null)
+    fun setDir(deviceId: String, dir: String) { store.putString("dir_$deviceId", dir) }
+    fun getDir(deviceId: String): String? = store.getString("dir_$deviceId", null)
 
     val hasModel get() = providerId.isNotBlank() && modelId.isNotBlank()
 }
