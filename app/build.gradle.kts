@@ -56,6 +56,11 @@ android {
 }
 
 dependencies {
+    // The shared KMP module: platform contracts plus whatever code has already
+    // been ported to commonMain (the API models today). Same packages as before,
+    // so nothing that imports them had to change.
+    implementation(project(":shared"))
+
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)

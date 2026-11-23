@@ -8,6 +8,9 @@ plugins {
     // Compose Multiplatform: the same Compose code renders on Android and iOS.
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
+    // The API models are @Serializable: the plugin generates their serializers
+    // for every target (JVM here, Kotlin/Native on iOS).
+    alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {

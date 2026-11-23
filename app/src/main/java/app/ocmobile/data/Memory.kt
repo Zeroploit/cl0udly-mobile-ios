@@ -4,7 +4,7 @@ import app.ocmobile.Graph
 import java.io.File
 
 /** Directories for "regular" chats and memory inside the environment (proot). Everything outside CHAT_DIR is the Code tab. */
-const val CHAT_DIR = "/root/chats"
+// CHAT_DIR itself is in commonMain (Consts.kt): the shared API models need it.
 const val MEMORY_DIR = "/root/memory"
 
 /**
