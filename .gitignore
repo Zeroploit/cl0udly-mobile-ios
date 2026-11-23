@@ -14,3 +14,6 @@ xcuserdata/
 DerivedData/
 Pods/
 .DS_Store
+
+# Code graph (generated locally by graphify; rebuild with: graphify . --code-only)
+graphify-out/
