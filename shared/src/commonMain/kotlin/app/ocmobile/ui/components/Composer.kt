@@ -1,0 +1,822 @@
+package app.ocmobile.ui.components
+
+import app.ocmobile.ui.theme.kimiLike
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import app.ocmobile.Graph
+import app.ocmobile.data.LocalFile
+import app.ocmobile.ui.Nav
+import app.ocmobile.ui.Route
+import app.ocmobile.ui.theme.Ic
+import app.ocmobile.ui.theme.Oc
+import coil3.compose.AsyncImage
+import kotlinx.coroutines.launch
+
+class ComposerState {
+    /** Text together with the cursor: the "/" menu opens where the cursor is, not only at the start. */
+    var input by mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(""))
+    var text: String
+        get() = input.text
+        set(v) { input = androidx.compose.ui.text.input.TextFieldValue(v, androidx.compose.ui.text.TextRange(v.length)) }
+
+    /** The "/…" word being typed before the cursor: (start, query without "/"), otherwise null. */
+    val slashToken: Pair<Int, String>?
+        get() {
+            val t = input.text; val cur = input.selection.end.coerceIn(0, t.length)
+            val start = t.lastIndexOf('/', cur - 1).takeIf { it >= 0 } ?: return null
+            if (start > 0 && !t[start - 1].isWhitespace()) return null
+            val q = t.substring(start + 1, cur)
+            return if (q.any { it.isWhitespace() }) null else start to q
+        }
+
+    /** Puts "/name " in place of the word being typed, cursor after it. */
+    fun pickSlash(name: String) {
+        val (start, q) = slashToken ?: (input.text.length to "")
+        val t = input.text
+        val end = start + 1 + q.length
+        val ins = "/$name "
+        val nt = t.substring(0, start) + ins + t.substring(end.coerceAtMost(t.length)).trimStart(' ')
+        input = androidx.compose.ui.text.input.TextFieldValue(nt, androidx.compose.ui.text.TextRange(start + ins.length))
+    }
+    val attachments = mutableStateListOf<LocalFile>()
+    var showAdd by mutableStateOf(false)
+    var showModel by mutableStateOf(false)
+    val canSend get() = text.isNotBlank() || attachments.isNotEmpty()
+    fun clear() { text = ""; attachments.clear() }
+}
+
+@Composable
+fun rememberComposerState() = remember { ComposerState() }
+
+/** The input like in Claude: plus, model picker, send; "Add" and "Select model" sheets under it. */
+@Composable
+fun ComposerHost(
+    state: ComposerState,
+    nav: Nav,
+    busy: Boolean,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+    sessionId: String? = null,
+    placeholder: String = "Chat with OpenCode…",
+    dashed: Boolean = false,
+    modifier: Modifier = Modifier,
+    onVoice: (() -> Unit)? = null,
+    /** Over the chat, which shows a little through it. */
+    floating: Boolean = false,
+) {
+    val c = Oc.c
+    val haptic = rememberHaptic()
+    val prefs = Graph.prefs
+    val catalog = Graph.catalog
+    val providers by catalog.providers.collectAsState()
+
+    val model = providers.firstOrNull { it.id == prefs.providerId }?.models?.get(prefs.modelId)
+    val modelName = model?.name?.takeIf { it.isNotBlank() } ?: prefs.modelId.ifBlank { "Select model" }
+    val (dict, startDict) = rememberDictation()
+    // the mascot on home listens while dictation runs
+    androidx.compose.runtime.LaunchedEffect(dict.active) { MascotSignals.listening = dict.active }
+    androidx.compose.runtime.LaunchedEffect(dict.active) { while (dict.active) { MascotSignals.level = dict.levels.lastOrNull() ?: 0f; kotlinx.coroutines.delay(80) } }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { MascotSignals.listening = false } }
+    fun takeDictation() { val t = dict.finish(); if (t.isNotBlank()) state.text = if (state.text.isBlank()) t else state.text.trimEnd() + " " + t }
+    // ChatGPT and Kimi: a one-line input, the model in the top bar
+    val compact = Oc.look.compact
+    val look = Oc.look.id
+    val sendCol = Oc.look.sendColor?.invoke(c)
+    // in Messenger/Hairline/Cards/Notebook the send button is colored too; in ChatGPT/Kimi it's white, like the originals
+    val readyCol = if (Oc.look.compact) null else sendCol
+    var focused by remember { mutableStateOf(false) }
+    // cl0udly: a hairline that darkens a little while you type, no glow
+    // cl0udly: the keyboard going away (back, swipe) ends typing, so the input folds back into one line
+    if (look == "cloud") {
+        val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+        val imeUp = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+        var imeSeen by remember { mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(imeUp) {
+            if (imeUp) imeSeen = true
+            else if (imeSeen) { imeSeen = false; if (focused) focusManager.clearFocus() }
+        }
+    }
+    val cloudEdge by animateColorAsState(if (focused) c.textDim.copy(alpha = 0.6f) else c.border, tween(120), label = "edge")
+
+    Column(modifier) {
+    SlashMenu(state, nav)
+    // skills and commands in the text in the accent color (dim blue in cl0udly)
+    val known by Graph.catalog.commands.collectAsState()
+    val names = remember(known) { known.map { it.name }.toSet() }
+    val skillColors = remember(names, c.accent) { SkillHighlight(names, c.accent) }
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+            .then(if (look == "cloud") Modifier else Modifier.animateContentSize(tween(140)))
+            .clip(if (compact) RoundedCornerShape(if (look.kimiLike) 34.dp else 28.dp) else Oc.round(30.dp))
+            .background(when { compact -> c.surfaceHigh; look == "hairline" || look == "notebook" -> c.bg; else -> c.surface }.let { if (floating) it.copy(alpha = it.alpha * 0.88f) else it })
+            .then(
+                when {
+                    dashed -> Modifier.dashedBorder(c.textDim, 30.dp)
+                    // Hairline: an empty 1px frame; Notebook: no frame, just a rule on top, like a line in a notebook
+                    look == "hairline" -> Modifier.border(1.dp, c.border, Oc.round(30.dp))
+                    look == "notebook" -> Modifier.drawBehind { drawRect(c.accent.copy(alpha = 0.55f), size = androidx.compose.ui.geometry.Size(size.width, 1.5.dp.toPx())) }
+                    compact -> Modifier.border(1.dp, c.border, RoundedCornerShape(if (look.kimiLike) 34.dp else 28.dp))
+                    Oc.terminal -> Modifier.drawBehind { drawRect(c.link, size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height)) }
+                    Oc.desktop -> Modifier.border(1.dp, c.border, Oc.round(30.dp))
+                    look == "cloud" -> Modifier.border(1.dp, cloudEdge, Oc.round(30.dp))
+                    else -> Modifier.border(1.5.dp, c.border, Oc.round(30.dp))
+                },
+            ),
+    ) {
+        if (state.attachments.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                AttachmentStrip(state.attachments)
+            }
+        }
+        if (look == "cloud" && !dict.active) {
+            val ready = busy || state.canSend
+            // the call lives in + → Call; here the button only sends or stops
+            val voice = false
+            val stopping = busy && !state.canSend
+            CloudInput(
+                // only while typing: with the keyboard down even a written draft sits in one line
+                expanded = focused,
+                hint = costHintText(sessionId?.let { Graph.chats.chat(it) }, state.text, state.attachments.size),
+                micShown = true,
+                field = {
+                    // grows line by line instead of jumping; past six lines it scrolls inside
+                    Box(Modifier.animateContentSize(tween(140)), contentAlignment = Alignment.CenterStart) {
+                        if (state.text.isEmpty()) Txt(placeholder, size = 17.sp, color = c.textDim, maxLines = 1)
+                        BasicTextField(
+                            value = state.input, onValueChange = { state.input = it }, visualTransformation = skillColors,
+                            textStyle = TextStyle(color = c.text, fontSize = 17.sp, fontFamily = Oc.body),
+                            cursorBrush = SolidColor(c.text), maxLines = if (focused) 6 else 1,
+                            modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+                        )
+                    }
+                },
+                plus = { IconBtn(Ic.Plus, { haptic(); state.showAdd = true }, size = 44.dp, bg = c.text.copy(alpha = 0.08f)) },
+                mic = { IconBtn(Ic.Mic, { haptic(); startDict() }, size = 44.dp, tint = c.text) },
+                send = {
+                    val bg by animateColorAsState(if (ready) readyCol ?: c.text else if (voice) sendCol ?: c.border else c.border, tween(120), label = "sendBg")
+                    val ink = if (ready) (if (readyCol != null) androidx.compose.ui.graphics.Color.White else c.bg) else if (voice && sendCol != null) androidx.compose.ui.graphics.Color.White else c.text
+                    // while the answer comes, a thin arc runs around the stop square (a line, not a pulse)
+                    val spin = if (stopping && app.ocmobile.platform.rememberMotionEnabled())
+                        androidx.compose.animation.core.rememberInfiniteTransition(label = "spin").animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(1100, easing = androidx.compose.animation.core.LinearEasing)), label = "spinA")
+                    else null
+                    Box(
+                        Modifier.size(44.dp).clip(CircleShape).background(bg)
+                            .drawBehind {
+                                val a = spin?.value ?: return@drawBehind
+                                val sw = 1.5.dp.toPx(); val inset = 4.dp.toPx()
+                                drawArc(ink.copy(alpha = 0.55f), a, 80f, false, androidx.compose.ui.geometry.Offset(inset, inset),
+                                    androidx.compose.ui.geometry.Size(size.width - inset * 2, size.height - inset * 2), style = Stroke(sw, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                            }
+                            .tap(enabled = ready || voice) { haptic(); if (voice) onVoice?.invoke() else if (stopping) onStop() else onSend() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.animation.AnimatedContent(
+                            if (voice) 2 else if (stopping) 1 else 0, label = "sendIcon",
+                            transitionSpec = {
+                                // the arrow comes up from below, the others grow in place
+                                val enter = if (targetState == 0) androidx.compose.animation.slideInVertically(tween(140)) { it / 2 } + androidx.compose.animation.fadeIn(tween(100))
+                                else androidx.compose.animation.scaleIn(tween(140), 0.6f) + androidx.compose.animation.fadeIn(tween(100))
+                                enter togetherWith (androidx.compose.animation.fadeOut(tween(70)) + androidx.compose.animation.scaleOut(tween(70), 0.8f))
+                            },
+                        ) { k -> Ico(when (k) { 2 -> Ic.Waveform; 1 -> Ic.Stop; else -> Ic.ArrowUp }, tint = ink, size = 20.dp) }
+                    }
+                },
+            )
+        } else if (compact && !dict.active) Row(Modifier.fillMaxWidth().padding(if (look.kimiLike) 9.dp else 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconBtn(Ic.Plus, { haptic(); state.showAdd = true }, size = 44.dp, bg = if (look.kimiLike) c.text.copy(alpha = 0.08f) else androidx.compose.ui.graphics.Color.Transparent)
+            Box(Modifier.weight(1f).padding(horizontal = 8.dp).heightIn(min = 24.dp, max = 160.dp), contentAlignment = Alignment.CenterStart) {
+                if (state.text.isEmpty()) Txt(placeholder, size = 17.sp, color = c.textDim, maxLines = 1)
+                BasicTextField(
+                    value = state.input, onValueChange = { state.input = it }, visualTransformation = skillColors,
+                    textStyle = TextStyle(color = c.text, fontSize = 17.sp, fontFamily = Oc.body),
+                    cursorBrush = SolidColor(c.text), maxLines = 6, modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            IconBtn(Ic.Mic, { haptic(); startDict() }, size = 44.dp, tint = c.text)
+            Spacer(Modifier.width(4.dp))
+            val ready = busy || state.canSend
+            val voice = !ready && onVoice != null
+            val bg = when { ready -> readyCol ?: c.text; voice -> sendCol ?: c.border; else -> c.border }
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(bg)
+                    .tap(enabled = ready || voice) { haptic(); if (voice) onVoice?.invoke() else if (busy && !state.canSend) onStop() else onSend() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Ico(if (voice) Ic.Waveform else if (busy && !state.canSend) Ic.Stop else Ic.ArrowUp, tint = if (ready) (if (readyCol != null) androidx.compose.ui.graphics.Color.White else c.bg) else if (voice && sendCol != null) androidx.compose.ui.graphics.Color.White else c.text, size = 20.dp)
+            }
+        } else {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 14.dp, bottom = 2.dp).heightIn(min = 26.dp, max = 200.dp)) {
+            if (dict.active) {
+                // what's been said goes right into the input, like in Claude
+                Txt(listOf(state.text, dict.text).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "Listening…" }, size = 17.sp, color = if (dict.text.isBlank()) c.textDim else c.text, maxLines = 8)
+            } else {
+            if (state.text.isEmpty()) when (look) {
+                "hairline" -> Txt(placeholder.uppercase().removeSuffix("…") + " _", size = 13.sp, color = c.textDim, family = Oc.label, modifier = Modifier.padding(top = 2.dp))
+                "notebook" -> androidx.compose.material3.Text(placeholder, fontSize = 18.sp, color = c.textDim, fontFamily = Oc.reply, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                else -> Txt(placeholder, size = 17.sp, color = c.textDim)
+            }
+            BasicTextField(
+                value = state.input, onValueChange = { state.input = it }, visualTransformation = skillColors,
+                textStyle = TextStyle(color = c.text, fontSize = if (look == "notebook") 18.sp else 17.sp, fontFamily = if (look == "notebook") Oc.reply else Oc.body),
+                cursorBrush = SolidColor(c.text), maxLines = 8,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            }
+        }
+        if (dict.active) DictationBar(dict, onCancel = { haptic(); dict.stop() }, onDone = { haptic(); takeDictation() }, onSend = { haptic(); takeDictation(); if (state.canSend) onSend() })
+        else Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (Oc.claudeLike) {
+                IconBtn(Ic.Plus, { haptic(); state.showAdd = true }, size = 40.dp, bg = c.surfaceHigh)
+                Spacer(Modifier.width(8.dp))
+                Row(
+                    Modifier.widthIn(max = 230.dp).height(40.dp).clip(Oc.pill).background(c.surfaceHigh)
+                        .tap(scale = 0.97f) { haptic(); state.showModel = true }.padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Txt(modelName, size = 15.sp, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    if (prefs.variant.isNotBlank()) { Spacer(Modifier.width(6.dp)); Txt(prefs.variant.replaceFirstChar { it.uppercase() }, size = 15.sp, color = c.textDim, maxLines = 1) }
+                }
+            } else {
+                val providerName = providers.firstOrNull { it.id == prefs.providerId }?.name.orEmpty()
+                IconBtn(Ic.Plus, { haptic(); state.showAdd = true }, size = 36.dp)
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    // agent: switched with a tap, like Tab in the terminal
+                    Row(
+                        Modifier.clip(Oc.round(10.dp)).tap(scale = 0.96f) { haptic(); prefs.agent = if (prefs.agent == "plan") "build" else "plan" }.padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Txt(prefs.agent.replaceFirstChar { it.uppercase() }, size = 14.sp, color = if (Oc.terminal) c.link else c.text, maxLines = 1)
+                        if (Oc.desktop) { Spacer(Modifier.width(2.dp)); Ico(Ic.ChevronDown, tint = c.textDim, size = 14.dp) }
+                    }
+                    Row(
+                        Modifier.weight(1f, fill = false).clip(Oc.round(10.dp)).tap(scale = 0.96f) { haptic(); state.showModel = true }.padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Txt(modelName, size = 14.sp, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                        if (Oc.terminal && providerName.isNotBlank()) { Spacer(Modifier.width(8.dp)); Txt(providerName, size = 13.sp, color = c.textDim, maxLines = 1, modifier = Modifier.widthIn(max = 90.dp)) }
+                        if (Oc.desktop) { Spacer(Modifier.width(2.dp)); Ico(Ic.ChevronDown, tint = c.textDim, size = 14.dp) }
+                    }
+                    if (Oc.desktop && prefs.variant.isNotBlank()) {
+                        Row(
+                            Modifier.clip(Oc.round(10.dp)).tap(scale = 0.96f) { haptic(); state.showModel = true }.padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Txt(prefs.variant.replaceFirstChar { it.uppercase() }, size = 14.sp, maxLines = 1)
+                            Spacer(Modifier.width(2.dp)); Ico(Ic.ChevronDown, tint = c.textDim, size = 14.dp)
+                        }
+                    }
+                }
+            }
+            if (Oc.claudeLike) Spacer(Modifier.weight(1f))
+            // the mic is always at hand: add by voice to what's typed and send even while the agent works
+            IconBtn(Ic.Mic, { haptic(); startDict() }, size = 40.dp, bg = c.surfaceHigh, tint = c.textDim)
+            Spacer(Modifier.width(8.dp))
+            val ready = busy || state.canSend
+            // empty and idle: the voice mode button, like in Claude
+            val voice = !ready && onVoice != null
+            val sendBg by animateColorAsState(if (voice && sendCol != null) sendCol else if (ready && readyCol != null) readyCol else if (ready || voice) c.text else c.surfaceHigh, tween(90), label = "sendBg")
+            // stop breathes slowly while the agent works (not when motion is off)
+            val stopping = !voice && busy && !state.canSend
+            val pulse = if (stopping && app.ocmobile.platform.rememberMotionEnabled())
+                androidx.compose.animation.core.rememberInfiniteTransition(label = "stop").animateFloat(1f, 0.7f, androidx.compose.animation.core.infiniteRepeatable(tween(600), androidx.compose.animation.core.RepeatMode.Reverse), label = "stopA")
+            else null
+            Box(
+                Modifier.size(40.dp).graphicsLayer { alpha = pulse?.value ?: 1f }.clip(Oc.pill).background(sendBg)
+                    .tap(enabled = ready || voice) { haptic(); if (voice) onVoice?.invoke() else if (busy && !state.canSend) onStop() else onSend() },
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.animation.AnimatedContent(
+                    if (voice) 2 else if (busy && !state.canSend) 1 else 0, label = "sendIcon",
+                    transitionSpec = { (androidx.compose.animation.fadeIn(tween(90)) + androidx.compose.animation.scaleIn(tween(120), 0.6f)) togetherWith androidx.compose.animation.fadeOut(tween(60)) },
+                ) { k -> Ico(when (k) { 2 -> Ic.Waveform; 1 -> Ic.Stop; else -> Ic.ArrowUp }, tint = if ((voice && sendCol != null) || (ready && readyCol != null)) androidx.compose.ui.graphics.Color.White else if (ready || voice) c.bg else c.textDim, size = 20.dp) }
+            }
+        }
+        }
+    }
+
+    // message price before sending
+    // cl0udly shows it inside the input, so the input doesn't jump up when typing starts
+    if (!dict.active && look != "cloud") CostHint(sessionId?.let { Graph.chats.chat(it) }, state.text, state.attachments.size)
+    }
+
+    if (state.showAdd && look.kimiLike) {
+        KimiAddPanel(
+            onDismiss = { state.showAdd = false },
+            sessionId = sessionId,
+            nav = nav,
+            onCamera = { Graph.chats.toasts.tryEmit("The camera is not available on this device") },
+            onPhotos = { Graph.chats.toasts.tryEmit("Picking photos is not available on this device") },
+            onFiles = { Graph.chats.toasts.tryEmit("Picking files is not available on this device") },
+            onVoice = onVoice,
+        )
+    } else if (state.showAdd) {
+        AddSheet(
+            onDismiss = { state.showAdd = false },
+            sessionId = sessionId,
+            nav = nav,
+            onCamera = {
+                Graph.chats.toasts.tryEmit("The camera is not available on this device")
+            },
+            onPhotos = { state.showAdd = false; Graph.chats.toasts.tryEmit("Picking photos is not available on this device") },
+            onFiles = { state.showAdd = false; Graph.chats.toasts.tryEmit("Picking files is not available on this device") },
+            onVoice = onVoice,
+        )
+    }
+    var allModels by remember { mutableStateOf(false) }
+    if (state.showModel && look.kimiLike && !allModels) KimiModelPanel(onDismiss = { state.showModel = false }, onMore = { allModels = true }, onTeam = { state.showModel = false; nav.push(Route.Team) })
+    else if (state.showModel) ModelSheet(onDismiss = { state.showModel = false; allModels = false }, start = if (allModels) "all" else "main", onTeam = { state.showModel = false; allModels = false; nav.push(Route.Team) })
+}
+
+/**
+ * The attachments above the input. Hold one and drag it sideways to change the order; with two or more
+ * each gets a number, and the agent is told the same numbers, so "photo 2" means the second one here.
+ */
+@Composable
+private fun AttachmentStrip(list: androidx.compose.runtime.snapshots.SnapshotStateList<LocalFile>) {
+    val haptic = rememberHaptic()
+    var held by remember { mutableStateOf<LocalFile?>(null) }
+    var dx by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val widths = remember { androidx.compose.runtime.mutableStateMapOf<LocalFile, Int>() }
+    val gap = with(androidx.compose.ui.platform.LocalDensity.current) { 10.dp.toPx() }
+    list.toList().forEachIndexed { i, a ->
+        androidx.compose.runtime.key(a) {
+            val lifted by androidx.compose.animation.core.animateFloatAsState(if (held == a) 1f else 0f, androidx.compose.animation.core.tween(120), label = "lift")
+            Box(
+                Modifier.zIndex(if (held == a) 1f else 0f)
+                    .onSizeChanged { widths[a] = it.width }
+                    .graphicsLayer { translationX = if (held == a) dx else 0f; scaleX = 1f + 0.06f * lifted; scaleY = scaleX }
+                    .pointerInput(a) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { held = a; dx = 0f; haptic() },
+                            onDrag = { ch, d ->
+                                ch.consume()
+                                dx += d.x
+                                val at = list.indexOf(a)
+                                // past half of the neighbour: swap with it and keep the chip under the finger
+                                if (dx > 0 && at < list.lastIndex) {
+                                    val w = (widths[list[at + 1]] ?: 0) + gap
+                                    if (dx > w / 2) { list.removeAt(at); list.add(at + 1, a); dx -= w; haptic() }
+                                } else if (dx < 0 && at > 0) {
+                                    val w = (widths[list[at - 1]] ?: 0) + gap
+                                    if (-dx > w / 2) { list.removeAt(at); list.add(at - 1, a); dx += w; haptic() }
+                                }
+                            },
+                            onDragEnd = { held = null; dx = 0f },
+                            onDragCancel = { held = null; dx = 0f },
+                        )
+                    },
+            ) { AttachmentChip(a, if (list.size > 1) i + 1 else null) { list.remove(a) } }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentChip(a: LocalFile, number: Int?, onRemove: () -> Unit) {
+    val c = Oc.c
+    Box {
+        if (a.isImage) {
+            AsyncImage(a.url, null, contentScale = ContentScale.Crop, modifier = Modifier.size(72.dp).clip(Oc.round(16.dp)).background(c.surfaceHigh))
+        } else {
+            Row(Modifier.height(72.dp).clip(Oc.round(16.dp)).background(c.surfaceHigh).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Ico(Ic.File, tint = c.textDim, size = 24.dp); Spacer(Modifier.width(8.dp))
+                Txt(a.name, size = 14.sp, maxLines = 2, modifier = Modifier.width(96.dp))
+            }
+        }
+        Box(
+            Modifier.align(Alignment.TopEnd).padding(4.dp).size(22.dp).clip(CircleShape).background(c.bg.copy(alpha = .85f)).clickable(onClick = onRemove),
+            contentAlignment = Alignment.Center,
+        ) { Ico(Ic.Close, tint = c.text, size = 14.dp) }
+        // the same number the agent is told
+        if (number != null) Box(
+            Modifier.align(Alignment.TopStart).padding(4.dp).size(22.dp).clip(CircleShape).background(c.text),
+            contentAlignment = Alignment.Center,
+        ) { Txt("$number", size = 12.sp, color = c.bg, weight = FontWeight.SemiBold) }
+    }
+}
+
+@Composable
+private fun AddSheet(
+    onDismiss: () -> Unit,
+    sessionId: String?,
+    nav: Nav,
+    onCamera: () -> Unit,
+    onPhotos: () -> Unit,
+    onFiles: () -> Unit,
+    onVoice: (() -> Unit)? = null,
+) {
+    val c = Oc.c
+    val prefs = Graph.prefs
+    val scope = rememberCoroutineScope()
+    var page by remember { mutableStateOf("main") }
+    val agents by Graph.catalog.agents.collectAsState()
+    val permLabel = mapOf("ask" to "Ask", "edits" to "Auto-edit", "auto" to "Auto")
+
+    // Terminal keeps its TUI dialog; every other look gets the sheet with tiles and groups, like Claude's
+    val sheet = !Oc.terminal
+    val title = when (page) { "perm" -> "Permission"; "agent" -> "Agent"; else -> if (Oc.terminal) "Commands" else "Add to session" }
+    val back = if (page != "main") ({ page = "main" }) else null
+    val body: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = if (sheet) 24.dp else 10.dp)) {
+            when (page) {
+                "perm" -> {
+                    listOf(
+                        Triple("ask", "Ask", "Confirm every file edit and command"),
+                        Triple("edits", "Auto-edit", "Edit files freely, ask before commands and web"),
+                        Triple("auto", "Auto", "Run everything without asking"),
+                    ).forEach { (k, l, d) ->
+                        PickRow(l, {
+                            prefs.permissionMode = k
+                            if (sessionId != null) scope.launch {
+                                runCatching {
+                                    Graph.api.setSessionPermission(sessionId, Graph.chats.session(sessionId)?.directory,
+                                        Graph.chats.permissionRules(k, sessionId))
+                                }
+                            }
+                            page = "main"
+                        }, selected = prefs.permissionMode == k, subtitle = d)
+                    }
+                }
+                "agent" -> agents.forEach { a ->
+                    PickRow(a.name.replaceFirstChar { it.uppercase() }, { prefs.agent = a.name; page = "main" }, selected = prefs.agent == a.name, subtitle = a.description)
+                }
+                else -> if (sheet) {
+                    // leaving for another screen: the sheet slides away first, then the screen opens
+                    val close = LocalSheetClose.current
+                    fun go(to: () -> Unit) = close(to)
+                    var memHere by remember { mutableStateOf(prefs.memoryOn(sessionId)) }
+                    Row(Modifier.padding(horizontal = 16.dp).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Tile("Camera", Ic.Camera, Modifier.weight(1f), onCamera)
+                        Tile("Photos", Ic.Image, Modifier.weight(1f), onPhotos)
+                        Tile("Files", Ic.FileUp, Modifier.weight(1f), onFiles)
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    SettingsGroup {
+                        SettingsRow("Permission", subtitle = permLabel[prefs.permissionMode], icon = Ic.FastForward, circleIcon = true, chevron = true, onClick = { page = "perm" })
+                        SettingsRow("Agent", subtitle = prefs.agent.replaceFirstChar { it.uppercase() }, icon = Ic.Bot, circleIcon = true, chevron = true, onClick = { page = "agent" })
+                        SettingsRow("Devices", icon = Ic.Laptop, circleIcon = true, chevron = true, onClick = { go { nav.push(Route.Code) } })
+                        if (onVoice != null) SettingsRow("Call", icon = Ic.Phone, circleIcon = true, chevron = true, onClick = { go(onVoice) })
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    SettingsGroup {
+                        SettingsRow("Plan mode", icon = Ic.ListCheck, circleIcon = true, trailing = {
+                            OcSwitch(prefs.agent == "plan") { prefs.agent = if (it) "plan" else "build" }
+                        })
+                        SettingsRow("Sub-agents", subtitle = teamLabel(), icon = Ic.Users, circleIcon = true, chevron = true, onClick = { go { nav.push(Route.Team) } })
+                        SettingsRow("Add a sub-agent", subtitle = "A name, a role and a model", icon = Ic.Plus, circleIcon = true, onClick = { go { app.ocmobile.data.Team.addRequested = true; nav.push(Route.Team) } })
+                        SettingsRow("Connectors", icon = Ic.Puzzle, circleIcon = true, chevron = true, onClick = { go { nav.push(Route.Connectors) } })
+                        SettingsRow("Skills", icon = Ic.Scroll, circleIcon = true, chevron = true, onClick = { go { nav.push(Route.Skills) } })
+                        SettingsRow("Scheduled", icon = Ic.Clock2, circleIcon = true, chevron = true, onClick = { go { nav.root(Route.Scheduled) } })
+                        SettingsRow("Memory", icon = Ic.Sparkle, circleIcon = true, trailing = {
+                            OcSwitch(prefs.memoryEnabled) { prefs.memoryEnabled = it; memHere = prefs.memoryOn(sessionId); app.ocmobile.data.Memory.sync() }
+                        })
+                        if (sessionId != null && prefs.memoryEnabled) SettingsRow("Memory in this chat", icon = Ic.Chat, circleIcon = true, trailing = {
+                            OcSwitch(memHere) { memHere = it; Graph.chats.setChatMemory(sessionId, it) }
+                        })
+                    }
+                } else {
+                    // Terminal: a command list with hints on the right; Desktop: a compact menu with icons
+                    val t = Oc.terminal
+                    PickRow(if (t) "Attach photo" else "Camera", onCamera, icon = Ic.Camera, trailing = if (t) "camera" else null)
+                    PickRow(if (t) "Attach image" else "Photos", onPhotos, icon = Ic.Image, trailing = if (t) "photos" else null)
+                    PickRow(if (t) "Attach file" else "Files", onFiles, icon = Ic.FileUp, trailing = if (t) "@" else null)
+                    if (!t) Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(1.dp).background(c.border))
+                    PickRow(if (t) "Switch permission" else "Permission", { page = "perm" }, icon = Ic.Shield, trailing = permLabel[prefs.permissionMode], chevron = !t)
+                    PickRow(if (t) "Switch agent" else "Agent", { page = "agent" }, icon = Ic.Bot, trailing = if (t) "tab · " + prefs.agent else prefs.agent.replaceFirstChar { it.uppercase() }, chevron = !t)
+                    PickRow(if (t) "Toggle plan mode" else "Plan mode", { prefs.agent = if (prefs.agent == "plan") "build" else "plan" }, icon = Ic.ListCheck, selected = !t && prefs.agent == "plan", trailing = if (t) (if (prefs.agent == "plan") "on" else "off") else null)
+                    if (!t) Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(1.dp).background(c.border))
+                    PickRow(if (t) "Connectors (MCP)" else "Connectors", { onDismiss(); nav.push(Route.Connectors) }, icon = Ic.Puzzle, chevron = !t)
+                    PickRow("Skills", { onDismiss(); nav.push(Route.Skills) }, icon = Ic.Scroll, chevron = !t)
+                }
+            }
+        }
+    }
+    if (sheet) MagnetSheet(onDismiss = onDismiss, title = title, onBack = back, content = body)
+    else PickerFrame(onDismiss = onDismiss, title = title, onBack = back, content = body)
+}
+
+@Composable
+private fun Tile(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier, onClick: () -> Unit) {
+    val c = Oc.c
+    Column(
+        modifier.clip(Oc.round(24.dp)).background(c.surface).clickable(onClick = onClick).padding(vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(52.dp).clip(CircleShape).background(c.surfaceHigh), contentAlignment = Alignment.Center) { Ico(icon, size = 26.dp) }
+        Spacer(Modifier.height(10.dp))
+        Txt(label, size = 17.sp)
+    }
+}
+
+@Composable
+fun ModelSheet(start: String = "main", onTeam: (() -> Unit)? = null, onDismiss: () -> Unit) {
+    val c = Oc.c
+    val prefs = Graph.prefs
+    val providers by Graph.catalog.providers.collectAsState()
+    var page by remember { mutableStateOf(start) }
+    var query by remember { mutableStateOf("") }
+    val current = Graph.catalog.model(prefs.providerId, prefs.modelId)
+
+    PickerFrame(
+        onDismiss = onDismiss,
+        title = when (page) { "effort" -> "Effort"; "all" -> "More models"; "team" -> "Sub-agents"; else -> "Select model" },
+        onBack = if (page != "main") ({ page = "main" }) else null,
+        skipHalf = false,
+    ) {
+        // sub-agents right here, a page like More models; the full screen is one row away
+        if (page == "team") {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) { app.ocmobile.ui.screens.TeamPanel(onAll = onTeam, onCreated = onDismiss) }
+            return@PickerFrame
+        }
+        if (page == "effort") {
+            val names = current?.variantNames.orEmpty()
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                PickRow("Default", { prefs.variant = ""; page = "main" }, selected = prefs.variant.isBlank())
+                names.forEach { n ->
+                    PickRow(n.replaceFirstChar { it.uppercase() }, { prefs.variant = n; page = "main" }, selected = prefs.variant == n, badge = if (n == "medium") "Recommended" else null)
+                }
+                Txt("Higher effort means more thorough responses, but takes longer and uses your limits faster.", size = 15.sp, color = c.textDim, modifier = Modifier.padding(24.dp))
+            }
+            return@PickerFrame
+        }
+        val claudeEd = Oc.claudeLike
+        if (claudeEd && page == "main") {
+            ClaudeModelMain(current, onDismiss = onDismiss, onEffort = { page = "effort" }, onMore = { page = "all" }, onTeam = { page = "team" })
+            return@PickerFrame
+        }
+        PickSearch(query, { query = it }, "Search models")
+        LazyColumn(Modifier.heightIn(max = 520.dp).padding(bottom = if (claudeEd) 24.dp else 8.dp)) {
+            if (!claudeEd && current != null && current.variantNames.isNotEmpty()) item {
+                PickRow("Effort", { page = "effort" }, trailing = prefs.variant.ifBlank { "Default" }.replaceFirstChar { it.uppercase() }, chevron = true)
+            }
+            providers.forEach { p ->
+                val ms = p.models.values.filter { query.isBlank() || it.name.contains(query, true) || it.id.contains(query, true) }
+                    .sortedWith(compareByDescending<app.ocmobile.api.ModelInfo> { it.release_date ?: "" }.thenBy { it.name })
+                if (ms.isNotEmpty()) {
+                    item(key = "h-${p.id}") { PickHeader(p.name.ifBlank { p.id }) }
+                    items(ms, key = { p.id + "/" + it.id }) { m ->
+                        val sel = prefs.providerId == p.id && prefs.modelId == m.id
+                        val meta = buildList {
+                            m.limit?.context?.takeIf { it > 0 }?.let { add("${it / 1000}k ctx") }
+                            if (m.supportsImages) add("images")
+                            if (m.reasoning) add("reasoning")
+                        }.joinToString(" · ")
+                        PickRow(m.name.ifBlank { m.id }, {
+                            pickModel(p.id, m)
+                            if (m.variantNames.isEmpty()) onDismiss()
+                        }, selected = sel, subtitle = meta.ifBlank { null })
+                    }
+                }
+            }
+            if (providers.isEmpty()) item { Txt("No connected providers yet. Connect one in Settings → Providers.", color = c.textDim, modifier = Modifier.padding(24.dp)) }
+            if (claudeEd && current != null && current.variantNames.isNotEmpty()) item {
+                Box(Modifier.padding(16.dp)) {
+                    SettingsGroup {
+                        SettingsRow("Effort", subtitle = prefs.variant.ifBlank { "Default" }.replaceFirstChar { it.uppercase() }, chevron = true, onClick = { page = "effort" })
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * cl0udly input: one line while idle; on focus (or with text) it grows into a card:
+ * the text on top and the buttons under it. The same four elements move, so the field keeps focus and the keyboard stays.
+ */
+@Composable
+private fun CloudInput(
+    expanded: Boolean,
+    hint: String?,
+    micShown: Boolean,
+    field: @Composable () -> Unit,
+    plus: @Composable () -> Unit,
+    mic: @Composable () -> Unit,
+    send: @Composable () -> Unit,
+) {
+    val c = Oc.c
+    val t = androidx.compose.animation.core.animateFloatAsState(
+        if (expanded) 1f else 0f, tween(210, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "inputMorph",
+    )
+    val m = androidx.compose.animation.core.animateFloatAsState(if (micShown) 1f else 0f, tween(140), label = "micIn")
+    // the price fades with the card and keeps its last text while it fades out
+    var lastHint by remember { mutableStateOf("") }
+    if (hint != null) lastHint = hint
+    androidx.compose.ui.layout.Layout(
+        contents = listOf(field, plus, mic, send, { Txt(lastHint, size = 12.sp, color = c.textDim, maxLines = 1) }),
+        modifier = Modifier.fillMaxWidth(),
+    ) { (fieldM, plusM, micM, sendM, hintM), cons ->
+        val p = t.value
+        fun lerp(a: Float, b: Float) = a + (b - a) * p
+        val w = cons.maxWidth
+        val pad = 9.dp.toPx(); val btn = 44.dp.toPx()
+        val sendX = w - pad - btn
+        val micX = sendX - 4.dp.toPx() - btn
+        // one line: between plus and mic; card: across the top
+        val fieldX = lerp(pad + btn + 8.dp.toPx(), 20.dp.toPx())
+        val fieldW = lerp(micX - 8.dp.toPx() - (pad + btn + 8.dp.toPx()), w - 40.dp.toPx()).toInt().coerceAtLeast(0)
+        val f = fieldM.first().measure(androidx.compose.ui.unit.Constraints(minWidth = fieldW, maxWidth = fieldW, minHeight = 24.dp.roundToPx()))
+        val lineH = btn + pad * 2
+        val rowY = 16.dp.toPx() + f.height + 6.dp.toPx()
+        val h = lerp(maxOf(lineH, f.height + pad * 2), rowY + btn + pad)
+        val btnY = lerp((h - btn) / 2f, rowY)
+        val fieldY = lerp((lineH - f.height) / 2f, 16.dp.toPx())
+        val bc = androidx.compose.ui.unit.Constraints.fixed(btn.toInt(), btn.toInt())
+        val pl = plusM.first().measure(bc); val mi = micM.first().measure(bc); val se = sendM.first().measure(bc)
+        val hintX = pad + btn + 12.dp.toPx()
+        val hi = hintM.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = (micX - 12.dp.toPx() - hintX).toInt().coerceAtLeast(0)))
+        layout(w, h.toInt()) {
+            f.place(fieldX.toInt(), fieldY.toInt())
+            val mv = m.value
+            pl.place(pad.toInt(), btnY.toInt())
+            // the mic hides under send (placed after it, so send takes the taps)
+            mi.placeWithLayer((sendX + (micX - sendX) * mv).toInt(), btnY.toInt()) { alpha = mv; scaleX = 0.7f + 0.3f * mv; scaleY = scaleX }
+            se.place(sendX.toInt(), btnY.toInt())
+            if (p > 0f) hi.placeWithLayer(hintX.toInt(), (btnY + (btn - hi.height) / 2f).toInt()) { alpha = if (hint != null) p else 0f }
+        }
+    }
+}
+
+private fun Modifier.dashedBorder(color: androidx.compose.ui.graphics.Color, radius: Dp, width: Dp = 1.5.dp): Modifier = drawBehind {
+    drawRoundRect(color, cornerRadius = CornerRadius(radius.toPx()), style = Stroke(width.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 14f))))
+}
+
+
+internal fun pickModel(providerId: String, m: app.ocmobile.api.ModelInfo) {
+    val prefs = Graph.prefs
+    prefs.providerId = providerId; prefs.modelId = m.id
+    if (prefs.variant !in m.variantNames) prefs.variant = ""
+    val key = "$providerId/${m.id}"
+    val recent = prefs.recentModels.split(',').filter { it.isNotBlank() }
+    // a model already in the short list keeps its place: picking the second one must not make it the first
+    if (key in recent.take(3)) return
+    prefs.recentModels = (listOf(key) + recent.filter { it != key }).take(6).joinToString(",")
+}
+
+/** The main model picker page, like Claude mobile: a short list as a card, a hint, Effort and "More models". */
+@Composable
+private fun ClaudeModelMain(current: app.ocmobile.api.ModelInfo?, onDismiss: () -> Unit, onEffort: () -> Unit, onMore: () -> Unit, onTeam: (() -> Unit)? = null) {
+    val c = Oc.c
+    val prefs = Graph.prefs
+    val providers by Graph.catalog.providers.collectAsState()
+    // recent and selected first, then the newest models of the same provider: four in total
+    val featured = remember(providers, prefs.recentModels, prefs.providerId, prefs.modelId) {
+        val out = LinkedHashMap<String, Pair<String, app.ocmobile.api.ModelInfo>>()
+        fun add(pid: String, m: app.ocmobile.api.ModelInfo?) { if (m != null) out.putIfAbsent("$pid/${m.id}", pid to m) }
+        // the order of the recent list, not "selected first": the picked model stays where it was
+        prefs.recentModels.split(',').filter { it.contains('/') }.forEach { k -> add(k.substringBefore('/'), Graph.catalog.model(k.substringBefore('/'), k.substringAfter('/'))) }
+        add(prefs.providerId, Graph.catalog.model(prefs.providerId, prefs.modelId))
+        providers.firstOrNull { it.id == prefs.providerId }?.models?.values
+            ?.sortedByDescending { it.release_date ?: "" }?.forEach { add(prefs.providerId, it) }
+        out.values.take(4).toList()
+    }
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+        if (featured.isEmpty()) {
+            Txt("No connected providers yet. Connect one in Settings → Providers.", color = c.textDim, modifier = Modifier.padding(24.dp))
+        } else SettingsGroup {
+            featured.forEach { (pid, m) ->
+                val sel = prefs.providerId == pid && prefs.modelId == m.id
+                val meta = buildList {
+                    m.limit?.context?.takeIf { it > 0 }?.let { add("${it / 1000}k context") }
+                    if (m.supportsImages) add("images")
+                    if (m.reasoning) add("reasoning")
+                }.joinToString(" · ")
+                Row(
+                    Modifier.fillMaxWidth().background(c.surface).tap(scale = 1f) {
+                        pickModel(pid, m)
+                        if (m.variantNames.isEmpty()) onDismiss()
+                    }.padding(horizontal = 18.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Txt(m.name.ifBlank { m.id }, Modifier.weight(1f, fill = false), size = 19.sp, maxLines = 1)
+                        }
+                        if (meta.isNotBlank()) Txt(meta, size = 14.sp, color = c.textDim, modifier = Modifier.padding(top = 2.dp))
+                    }
+                    if (sel) Ico(Ic.Check, tint = c.link, size = 24.dp)
+                }
+            }
+        }
+        Txt("Free models share one daily limit per network. Connect more providers in Settings → Providers.", size = 15.sp, color = c.textDim, lineHeight = 21.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp))
+        if (current != null && current.variantNames.isNotEmpty()) {
+            Box(Modifier.padding(bottom = 14.dp)) {
+                SettingsGroup {
+                    Row(Modifier.fillMaxWidth().background(c.surface).tap(scale = 1f, onClick = onEffort).padding(horizontal = 18.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Txt("Effort", size = 19.sp)
+                        if (prefs.variant == "medium" || prefs.variant.isBlank()) { Spacer(Modifier.width(10.dp)); Chip("Recommended") }
+                        Spacer(Modifier.weight(1f))
+                        Txt(prefs.variant.ifBlank { "Default" }.replaceFirstChar { it.uppercase() }, size = 18.sp, color = c.textDim)
+                        Spacer(Modifier.width(6.dp)); Ico(Ic.ChevronRight, tint = c.textDim, size = 22.dp)
+                    }
+                }
+            }
+        }
+        SettingsGroup {
+            SettingsRow("More models", chevron = true, onClick = onMore)
+            // helpers: who they are, their models and names, and which ones are on
+            if (onTeam != null) SettingsRow("Sub-agents", subtitle = teamLabel(), chevron = true, onClick = onTeam)
+        }
+    }
+}
+
+/** ChatGPT and Kimi: the model as a "pill" in the top bar next to the menu (their input is one line). */
+@Composable
+fun TopModelPill(state: ComposerState) {
+    if (!Oc.look.compact) return
+    if (Oc.look.id.kimiLike) return KimiModelPill { state.showModel = true }
+    val c = Oc.c
+    val providers by Graph.catalog.providers.collectAsState()
+    val prefs = Graph.prefs
+    val name = providers.firstOrNull { it.id == prefs.providerId }?.models?.get(prefs.modelId)?.name?.takeIf { it.isNotBlank() } ?: prefs.modelId.ifBlank { "Model" }
+    Row(
+        Modifier.padding(start = 6.dp).height(40.dp).widthIn(max = 220.dp).clip(CircleShape).background(c.surfaceHigh).tap(scale = 0.97f) { state.showModel = true }.padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Txt(name, size = 15.sp, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+        if (prefs.variant.isNotBlank()) { Spacer(Modifier.width(5.dp)); Txt(prefs.variant.replaceFirstChar { it.uppercase() }, size = 15.sp, color = c.textDim, maxLines = 1) }
+        Spacer(Modifier.width(4.dp)); Ico(Ic.ChevronDown, tint = c.textDim, size = 14.dp)
+    }
+}
+
+/** Colors "/name" of known skills and commands; the text length doesn't change. */
+class SkillHighlight(private val names: Set<String>, private val color: androidx.compose.ui.graphics.Color) : androidx.compose.ui.text.input.VisualTransformation {
+    override fun filter(text: androidx.compose.ui.text.AnnotatedString): androidx.compose.ui.text.input.TransformedText {
+        if (names.isEmpty() || '/' !in text) return androidx.compose.ui.text.input.TransformedText(text, androidx.compose.ui.text.input.OffsetMapping.Identity)
+        val b = androidx.compose.ui.text.AnnotatedString.Builder(text)
+        SLASH_TOKEN.findAll(text.text).forEach { m ->
+            if (m.groupValues[2] in names) {
+                val s = m.range.first + m.groupValues[1].length
+                b.addStyle(androidx.compose.ui.text.SpanStyle(color = color, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium), s, m.range.last + 1)
+            }
+        }
+        return androidx.compose.ui.text.input.TransformedText(b.toAnnotatedString(), androidx.compose.ui.text.input.OffsetMapping.Identity)
+    }
+}
+
+/** "/name" at the start of the text or after a space. */
+val SLASH_TOKEN = Regex("""(^|\s)/([\w.:-]+)""")
+
+/** The sub-agents row's value: off, automatic, or how many of your helpers are on. */
+internal fun teamLabel(): String = when (Graph.prefs.teamMode) {
+    "manual" -> app.ocmobile.data.Team.members.count { it.on }.let { if (it == 1) "1 helper" else "$it helpers" }
+    "auto" -> "Automatic"
+    else -> "Off"
+}

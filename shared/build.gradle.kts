@@ -45,9 +45,14 @@ kotlin {
             // Fonts ship with the app: the Android res/font files are copied into
             // composeResources so iOS and the desktop preview use the same faces.
             implementation(compose.components.resources)
+            // Hardware/gesture back: the sheets and the drawer close on it.
+            implementation("org.jetbrains.compose.ui:ui-backhandler:1.12.2")
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             api(libs.ktor.client.core)
+            // AsyncImage for the message media: the same Coil API the Android app uses.
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.ktor)
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)

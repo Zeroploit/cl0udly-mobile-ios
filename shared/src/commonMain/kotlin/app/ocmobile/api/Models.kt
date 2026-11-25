@@ -198,6 +198,9 @@ data class QuestionOption(val label: String, val description: String)
 data class QuestionItem(val question: String, val header: String, val options: List<QuestionOption>, val multiple: Boolean, val custom: Boolean)
 data class QuestionReq(val id: String, val sessionID: String, val questions: List<QuestionItem>)
 
+/** One entry of a folder on the server's computer; [name] is the last segment. */
+data class FileEntry(val name: String, val isDir: Boolean)
+
 // ---------- JsonObject helpers ----------
 
 fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull

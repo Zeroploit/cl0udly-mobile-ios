@@ -134,6 +134,8 @@ class Prefs(
     var introEnabled by bool("intro_enabled", true)
     /** Shelf topics, comma-separated; empty means any. */
     var memoryTopics by str("memory_topics", "")
+    /** Ids of the graph nodes already seen: new facts ring once. Replaces Android's seen file. */
+    var memoryGraphSeen by str("memory_graph_seen", "")
     var signedIn by str("signed_in", "")          // github | google | email | key | ""
     var loginSeen by bool("login_seen", false)
     var githubLogin by str("github_login", "")           // GitHub sign-in inside the environment (gh holds the token)

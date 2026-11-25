@@ -27,20 +27,20 @@ Android app through it.
 
 ## What is shared today
 
-| Moved | Notes |
-|---|---|
-| `api/Models.kt` | `Session`, `MessageInfo`, `Part`, serializers, parsing helpers. |
-| `data/Prefs.kt` | Over `SettingsStore`: `SharedPreferences` on Android, `NSUserDefaults` on iOS. Keys unchanged. |
-| `api/OpenCodeApi.kt` | The whole REST surface, on Ktor. The endpoint arrives as a lambda instead of being read from `Graph`. |
-| `api/EventHub.kt` | The SSE connection. It no longer decides between local and remote by itself: `start(scope, targets)` takes that decision as a flow. |
-| `data/Chat.kt` | One open chat's messages and streamed parts. Deltas are batched by a coroutine on the UI dispatcher instead of `Handler`/`Looper`. |
-| `data/Chats.kt` | The client half of `ChatHub`: sessions, statuses, permissions, questions, sending, aborting. The Android-only parts (team, memory, sounds, notifications, local runtime) stay in `:app`. |
-| `ui/theme/Theme.kt` | The palettes of `Looks.kt` and the `Oc` object. Fonts are the same files, shipped as Compose resources. |
-| `ui/theme/Icons.kt` | The `Ic` icon set, unchanged: it was already pure Compose vectors. |
-| `ui/components/Kit.kt` | `Txt`, `Ico`, `CircleBtn`, `RoundBtn`, the spring `tap`, the top bar and the model pill. |
-| `ui/Markdown.kt` | Replies at 18/30 sp in the reply face, code blocks, inline bold/italic/code. |
-| `ui/App.kt` | Home, chat, drawer, permission and question cards, the pixel clouds and mascot. |
-| `ui/Connect.kt` | The first screen: address + password, probed against `/global/health`. |
+The whole UI is shared now: the screens in `commonMain` are the Android
+screens ported almost line for line, with the Android-only calls swapped for
+common ones (`Context` → window size, `Toast` → the shared toast host,
+`java.io.File` → server calls, `SpeechRecognizer` → a no-op behind the same
+visuals).
+
+| Area | Files | Notes |
+|---|---|---|
+| Data | `data/Prefs.kt`, `Catalog.kt`, `Chats.kt`, `Chat.kt`, `ChatKind.kt`, `Devices.kt`, `I18n.kt`, `Memory.kt`, `MemoryIO.kt`, `Sounds.kt`, `Team.kt`, `Timeline.kt`, `Usage.kt`, `ContextUsage.kt` | Sessions, streams, catalog, team, memory, usage counters. `Usage` counts remote replies in memory; `Sounds` keeps the PCM synthesis but `play()` is quiet. |
+| API | `api/OpenCodeApi.kt`, `Models.kt`, `EventHub.kt` | The REST surface and the SSE stream, on Ktor. |
+| Shell | `ui/Root.kt`, `Nav.kt`, `Graph.kt`, `ServerConnect.kt` | Drawer physics, screen transitions, swipe-back, toasts, undo. Routes without a remote equivalent (Setup, local devices) fall through to a "soon" card. |
+| Theme | `ui/theme/Looks.kt`, `Theme.kt`, `Icons.kt` | All ten looks with the exact palettes; fonts ship as Compose resources. |
+| Components | `ui/components/*` — `CloudUi`, `Composer`, `Markdown`, `Code`, `Media`, `Files`, `FileViewer`, `UsageRing`, `MemoryGraph`, `HelperClouds`, `MascotLife`, `KimiUi`, `FloatMenu`, `Gestures`, `Pickers`, `SlashMenu`, `Dictation`, `SelectionBar`, `Thinking`, `LookThinking`, `Components`, `ChatExtras`, `Greetings`, `Wordmark`, `MenuDot`, `AccessBanner`, `MagnetSheet`, `Format` | Ported from the Android `ui/components` of the same names. The local-file halves (`OutFiles.host`, `FileCards`) stay but never resolve on a client; the remote halves (`RemoteFileCards`, the viewer over `fileContent`) are the ones that run. PDF pages, video and audio need platform players and show a quiet note for now. |
+| Screens | `ui/screens/*` — `HomeScreen`, `ChatScreen`, `Messages`, `WorkSteps`, `DrawerContent`, `SideMenu`, `ConnectScreen`, `TeamScreen`, `MemoryScreen`, `LookHome`, `ProjectsScreen`, `SessionActions`, `MessageActions`, `TimelineSheet`, `VoiceMode`, `PreviewScreen` | The chat UI is the Android one: tool cards, diffs, steps, actions, voice visuals, usage ring. |
 
 Platform seams in `shared/`:
 
@@ -82,18 +82,16 @@ client parses, so the screens can be looked at with realistic data.
 
 ## Next
 
-1. The rich message parts: tool cards that expand to their output, diffs,
-   images, the "steps" timeline with thought/command runs.
-2. The parts of the frame the phone shows and iOS does not yet: the greeting
-   pills, the mascot's moods and animations, the drawer's staging, sheets.
+1. Platform players on iOS for PDF pages, video and audio in the file viewer
+   (`PdfKit`, `AVPlayer` behind the shared `FileViewer` kinds).
+2. Real share/save targets (the viewer's and Media's buttons keep their place
+   but are quiet until a `UIActivityViewController` seam lands in `iosMain`).
 3. Attachments and dictation (camera, photos, speech) — they need the iOS
-   pickers and `SFSpeechRecognizer`, behind the shared composer.
+   pickers and `SFSpeechRecognizer`; the composer already calls through the
+   shared seams.
 4. `ChatHub` in `:app` can now delegate its message/session half to `Chats` and
    `Chat`, leaving it with the Android-only extras. That would end the
    duplication instead of letting the two drift.
-5. `Workspace`: 17 files write to `Graph.paths.host()`. On iOS those paths exist
-   on the server, not on the phone, so they need a contract with a local and a
-   remote implementation — only for features that exist on both sides.
 
 ## OpenCode versions
 

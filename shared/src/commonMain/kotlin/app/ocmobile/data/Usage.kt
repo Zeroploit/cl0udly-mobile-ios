@@ -1,0 +1,163 @@
+package app.ocmobile.data
+
+import app.ocmobile.Graph
+import app.ocmobile.api.EventHub
+import app.ocmobile.api.OpenCodeApi
+import app.ocmobile.api.dbl
+import app.ocmobile.api.long
+import app.ocmobile.api.obj
+import app.ocmobile.api.str
+import app.ocmobile.platform.nowMillis
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+data class UsageWindow(
+    val label: String,
+    val used: Double,
+    val limit: Double,
+    /** When it starts to "let go": the oldest entry in the window plus the window length. */
+    val resetAt: Long?,
+) {
+    val fraction get() = if (limit > 0) (used / limit).coerceIn(0.0, 1.0) else 0.0
+    val percent get() = if (limit > 0) (used / limit * 100) else 0.0
+}
+
+data class ModelUsage(val provider: String, val model: String, val cost: Double, val tokens: Long, val messages: Int)
+
+data class UsageSnapshot(
+    val fiveHour: UsageWindow,
+    val week: UsageWindow,
+    val month: UsageWindow,
+    val byModel: List<ModelUsage>,
+    val totalMonth: Double,
+    val tracked: Int,
+    /** Cost per day for the last 14 days, oldest first (today last). */
+    val daily: List<Double> = emptyList(),
+)
+
+/**
+ * OpenCode has no public API for the remaining Go limits, so we count ourselves:
+ * sum up the cost of each reply (the message's cost field) over sliding windows
+ * of 5 hours / 7 days / 30 days.
+ *
+ * Ported from the Android `UsageTracker.kt`. Two differences on a client: the
+ * records live in memory only (the Android copy persists to a private file),
+ * and replies are counted from the remote server too — they cost the same.
+ */
+class UsageTracker(
+    private val api: OpenCodeApi,
+    private val prefs: Prefs,
+    private val events: EventHub,
+) {
+    private data class Rec(val t: Long, val provider: String, val model: String, val cost: Double, val tokens: Long)
+
+    private val recs = LinkedHashMap<String, Rec>()
+    private val backfilled = HashMap<String, Long>()
+    val snapshot = MutableStateFlow(compute())
+    val refreshing = MutableStateFlow(false)
+
+    fun start() {
+        snapshot.value = compute()
+        Graph.scope.launch {
+            events.events.collect { e ->
+                if (e.type == "message.updated") e.props.obj("info")?.let { record(it) }
+            }
+        }
+        Graph.scope.launch { events.generation.collect { if (it > 0) backfill() } }
+    }
+
+    private fun record(info: JsonObject, publish: Boolean = true) {
+        if (info.str("role") != "assistant") return
+        val id = info.str("id") ?: return
+        val cost = info.dbl("cost") ?: return
+        val provider = info.str("providerID") ?: return
+        val time = info.obj("time")
+        val t = time?.long("completed") ?: time?.long("created") ?: return
+        val tokens = info.obj("tokens")?.let { o ->
+            (o.long("total") ?: ((o.long("input") ?: 0) + (o.long("output") ?: 0) + (o.long("reasoning") ?: 0)))
+        } ?: 0
+        val old = recs[id]
+        if (old != null && old.cost == cost && old.tokens == tokens) return
+        if (cost <= 0.0 && old == null && tokens == 0L) return
+        recs[id] = Rec(t, provider, info.str("modelID") ?: "", cost, tokens)
+        if (publish) { snapshot.value = compute(); prune() }
+    }
+
+    /** Rereads recent sessions so that usage from before the counter existed is included. */
+    suspend fun backfill() {
+        if (refreshing.value) return
+        refreshing.value = true
+        try {
+            val since = nowMillis() - 31L * DAY
+            val list = api.listSessions(limit = 500).filter { it.time.updated >= since }
+            for (s in list) {
+                if ((backfilled[s.id] ?: 0) >= s.time.updated) continue
+                val msgs = runCatching { api.messages(s.id, s.directory, 1000) }.getOrNull() ?: continue
+                for (m in msgs) if (!m.info.isUser) {
+                    record(
+                        buildJsonObject {
+                            put("role", "assistant"); put("id", m.info.id)
+                            m.info.cost?.let { put("cost", it) }
+                            m.info.providerID?.let { put("providerID", it) }
+                            m.info.modelID?.let { put("modelID", it) }
+                            put("time", buildJsonObject {
+                                (m.info.time.completed ?: m.info.time.created).let { put("completed", it) }
+                            })
+                            m.info.tokens?.let { put("tokens", buildJsonObject { put("total", it.sum) }) }
+                        },
+                        publish = false,
+                    )
+                }
+                backfilled[s.id] = s.time.updated
+            }
+            snapshot.value = compute()
+            prune()
+        } finally { refreshing.value = false }
+    }
+
+    fun compute(now: Long = nowMillis()): UsageSnapshot {
+        val counted = prefs.limitProviders.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        val relevant = recs.values.filter { counted.isEmpty() || it.provider in counted }
+        fun window(label: String, ms: Long, limit: Double): UsageWindow {
+            val inWin = relevant.filter { it.t > now - ms }
+            return UsageWindow(label, inWin.sumOf { it.cost }, limit, inWin.minOfOrNull { it.t }?.plus(ms))
+        }
+        val monthRecs = recs.values.filter { it.t > now - 30 * DAY }
+        val byModel = monthRecs.groupBy { it.provider to it.model }.map { (k, v) ->
+            ModelUsage(k.first, k.second, v.sumOf { it.cost }, v.sumOf { it.tokens }, v.size)
+        }.sortedByDescending { it.cost }
+        return UsageSnapshot(
+            fiveHour = window("5h", 5 * HOUR, prefs.limit5h),
+            week = window("week", 7 * DAY, prefs.limitWeek),
+            month = window("month", 30 * DAY, prefs.limitMonth),
+            byModel = byModel,
+            totalMonth = monthRecs.sumOf { it.cost },
+            tracked = recs.size,
+            daily = run {
+                // cost per local day, oldest first (today last); days counted from the epoch
+                val off = app.ocmobile.ui.screens.zoneOffsetMinutes() * 60_000L
+                val today = (now + off) / DAY
+                val by = relevant.groupBy { (it.t + off) / DAY }
+                (13 downTo 0).map { d -> by[today - d]?.sumOf { it.cost } ?: 0.0 }
+            },
+        )
+    }
+
+    fun recompute() { snapshot.value = compute() }
+
+    /** Memory only: drop records older than 35 days so a long session can't grow without bound. */
+    private fun prune() {
+        val cutoff = nowMillis() - 35 * DAY
+        recs.entries.removeAll { it.value.t < cutoff }
+    }
+
+    companion object {
+        const val HOUR = 3_600_000L
+        const val DAY = 24 * HOUR
+    }
+}

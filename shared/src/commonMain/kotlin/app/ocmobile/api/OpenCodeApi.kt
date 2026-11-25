@@ -388,5 +388,18 @@ class OpenCodeApi(
     suspend fun fileContent(path: String, directory: String?): JsonObject? =
         call("GET", "/file/content", dir(directory) + mapOf("path" to path)) as? JsonObject
 
+    /**
+     * Entries of one folder on the server's computer: what `ls` would list there.
+     * The memory shelf is a folder like any other, and this is how a client reads it without a
+     * filesystem of its own.
+     */
+    suspend fun listFiles(path: String, directory: String?): List<FileEntry> =
+        (call("GET", "/file", dir(directory) + mapOf("path" to path)) as? JsonArray).orEmpty().mapNotNull { el ->
+            (el as? JsonObject)?.let { o ->
+                val name = o.str("name") ?: o.str("path")?.substringAfterLast('/') ?: return@let null
+                FileEntry(name = name, isDir = o.str("type") == "directory")
+            }
+        }
+
     private fun JsonArray?.orEmpty() = this ?: JsonArray(emptyList())
 }
