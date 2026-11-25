@@ -1,4 +1,4 @@
-package app.ocmobile.ui.screens
+﻿package app.ocmobile.ui.screens
 
 import androidx.compose.animation.togetherWith
 import app.ocmobile.ui.theme.screenBackdrop
@@ -70,10 +70,10 @@ fun DrawerContent(nav: Nav, close: () -> Unit) {
             if (prefs.drawerHeader) item { DrawerHeader { go(it) } }
             item {
                 // the same sections in every look: a look changes how the app looks, never what it can do
-                // the sections, in the order and with the ones picked in Settings → Side menu
+                // the sections, in the order and with the ones picked in Settings â†’ Side menu
                 val navs = DrawerSections.shown().filter { it.key != "settings" || !Oc.look.id.kimiLike }.map { Triple(it.label, it.icon, it.route) }
                 if (Oc.look.id == "cards") {
-                    // Cards: sections as 2×2 tiles
+                    // Cards: sections as 2Ã—2 tiles
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         navs.chunked(2).forEach { row ->
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -209,7 +209,7 @@ private fun NavItem(label: String, icon: androidx.compose.ui.graphics.vector.Ima
     val c = Oc.c
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = if (Graph.prefs.drawerCompact) 10.dp else if (Oc.look.id == "messenger") 13.dp else 15.dp), verticalAlignment = Alignment.CenterVertically) {
         when (Oc.look.id) {
-            "hairline" -> { Ico(icon, tint = c.textDim, size = 18.dp); Spacer(Modifier.width(18.dp)); Txt(label.uppercase(), Modifier.weight(1f), size = 13.sp, family = Oc.label); Txt("→", size = 13.sp, color = c.textDim, family = Oc.label) }
+            "hairline" -> { Ico(icon, tint = c.textDim, size = 18.dp); Spacer(Modifier.width(18.dp)); Txt(label.uppercase(), Modifier.weight(1f), size = 13.sp, family = Oc.label); Txt("â†’", size = 13.sp, color = c.textDim, family = Oc.label) }
             "messenger" -> { Ico(icon, tint = c.textDim, size = 24.dp); Spacer(Modifier.width(28.dp)); Txt(label, size = 16.sp) }
             "notebook" -> { Ico(icon, tint = c.accent, size = 22.dp); Spacer(Modifier.width(18.dp)); Txt(label, size = 18.sp, family = Oc.reply) }
             "kimi", "cloud" -> { Ico(icon, tint = c.text, size = 23.dp); Spacer(Modifier.width(20.dp)); Txt(label, size = 18.sp) }
@@ -292,4 +292,4 @@ private fun dayGroups(list: List<Session>): List<Pair<String, List<Session>>> {
 }
 
 /** Search opened from the drawer: in Recents the search bar "flies" up from where it was. */
-object SearchHandoff { @Volatile var pending = false }
+object SearchHandoff { @kotlin.concurrent.Volatile var pending = false }

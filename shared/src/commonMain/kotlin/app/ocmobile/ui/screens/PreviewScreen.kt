@@ -165,11 +165,11 @@ fun previewTargets(chat: app.ocmobile.data.Chat): List<Pair<String, String>> {
             val text = when (p.type) { "text" -> p.text; "tool" -> (st?.str("output") ?: "") + " " + (st?.obj("input")?.str("command") ?: ""); else -> "" }
             re.findAll(text).forEach { mt ->
                 val port = mt.groupValues[1]
-                if (port != "4096" && port != "$PHONE_PORT") out.putIfAbsent("localhost:$port", "http://127.0.0.1:$port" + mt.groupValues[2])
+                if (port != "4096" && port != "$PHONE_PORT" && !out.containsKey("localhost:$port")) out["localhost:$port"] = "http://127.0.0.1:$port" + mt.groupValues[2]
             }
             if (p.type == "tool" && p.raw.str("tool") in setOf("write", "edit", "apply_patch")) {
                 st?.obj("input")?.str("filePath")?.takeIf { it.endsWith(".html") || it.endsWith(".htm") }?.let { f ->
-                    out.putIfAbsent(f.substringAfterLast('/'), previewUrl(f))
+                    if (!out.containsKey(f.substringAfterLast('/'))) out[f.substringAfterLast('/')] = previewUrl(f)
                 }
             }
         }

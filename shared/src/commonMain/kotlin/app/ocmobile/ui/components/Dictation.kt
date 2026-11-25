@@ -124,7 +124,7 @@ fun DictationBar(d: Dictation, onCancel: () -> Unit, onDone: () -> Unit, onSend:
             Txt(speechTag().take(2).uppercase(), size = 12.sp, color = c.text, family = Oc.mono)
         }
         Spacer(Modifier.width(8.dp))
-        Txt("%d:%02d".format(secs / 60, secs % 60), size = 14.sp, color = c.textDim, family = Oc.mono)
+        Txt("${secs / 60}:${(secs % 60).toString().padStart(2, '0')}", size = 14.sp, color = c.textDim, family = Oc.mono)
         Spacer(Modifier.width(10.dp))
         IconBtn(Ic.Check, onDone, size = 40.dp, bg = c.surfaceHigh)
         Spacer(Modifier.width(8.dp))

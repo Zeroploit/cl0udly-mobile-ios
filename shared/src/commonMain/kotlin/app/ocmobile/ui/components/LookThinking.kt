@@ -85,7 +85,7 @@ private fun elapsed(): Long {
     return (now - start) / 1000
 }
 
-private fun mmss(s: Long) = "%d:%02d".format(s / 60, s % 60)
+private fun mmss(s: Long) = "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
 
 private val Work.verb get() = when (this) {
     Work.Think -> "thinking"; Work.Read -> "reading files"; Work.Write -> "typing"; Work.Edit -> "editing code"

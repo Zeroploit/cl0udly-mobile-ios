@@ -260,7 +260,7 @@ private fun CommandView(p: Part) {
             Row(Modifier.padding(start = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(6.dp).clip(CircleShape).background(if (exit != null && exit != 0) c.danger else c.ok))
                 Spacer(Modifier.width(8.dp))
-                Txt(listOfNotNull(exit?.let { "exit $it" } ?: "done", took?.let { if (it < 10) "%.1fs".format(it) else "${it.toInt()}s" }).joinToString(" · "),
+                Txt(listOfNotNull(exit?.let { "exit $it" } ?: "done", took?.let { if (it < 10) app.ocmobile.ui.components.Fmt.fixed(it, 1) + "s" else "${it.toInt()}s" }).joinToString(" · "),
                     size = 12.sp, color = c.textDim, family = Oc.mono)
             }
         }

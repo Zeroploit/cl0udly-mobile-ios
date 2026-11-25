@@ -56,7 +56,7 @@ object Timeline {
 
     fun duration(ms: Long): String = when {
         ms < 1000 -> "${ms} ms"
-        ms < 60_000 -> "%.1f s".format(ms / 1000.0)
+        ms < 60_000 -> app.ocmobile.ui.components.Fmt.fixed(ms / 1000.0, 1) + " s"
         else -> "${ms / 60_000} min ${(ms / 1000) % 60} s"
     }
 }

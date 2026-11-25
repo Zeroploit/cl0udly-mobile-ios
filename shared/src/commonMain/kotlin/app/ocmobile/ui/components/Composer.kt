@@ -719,7 +719,7 @@ private fun ClaudeModelMain(current: app.ocmobile.api.ModelInfo?, onDismiss: () 
     // recent and selected first, then the newest models of the same provider: four in total
     val featured = remember(providers, prefs.recentModels, prefs.providerId, prefs.modelId) {
         val out = LinkedHashMap<String, Pair<String, app.ocmobile.api.ModelInfo>>()
-        fun add(pid: String, m: app.ocmobile.api.ModelInfo?) { if (m != null) out.putIfAbsent("$pid/${m.id}", pid to m) }
+        fun add(pid: String, m: app.ocmobile.api.ModelInfo?) { if (m != null && out.none { it.key == "$pid/${m.id}" }) out["$pid/${m.id}"] = pid to m }
         // the order of the recent list, not "selected first": the picked model stays where it was
         prefs.recentModels.split(',').filter { it.contains('/') }.forEach { k -> add(k.substringBefore('/'), Graph.catalog.model(k.substringBefore('/'), k.substringAfter('/'))) }
         add(prefs.providerId, Graph.catalog.model(prefs.providerId, prefs.modelId))

@@ -1,4 +1,4 @@
-package app.ocmobile.data
+﻿package app.ocmobile.data
 
 import app.ocmobile.Graph
 import app.ocmobile.api.EventHub
@@ -54,8 +54,8 @@ typealias Attachment = LocalFile
  * Ported from the Android `ChatHub` with its whole public surface. What only
  * makes sense on the phone that *runs* the server is absent: there are no
  * sounds, no vibration, no notifications and no local memory folder, because
- * on iOS the server is somebody else's computer. The rest — which is what a
- * chat client needs — is the same code the Android app uses.
+ * on iOS the server is somebody else's computer. The rest â€” which is what a
+ * chat client needs â€” is the same code the Android app uses.
  */
 class Chats(
     private val api: OpenCodeApi,
@@ -266,7 +266,7 @@ class Chats(
                     val a = st.obj("action")
                     retries.update {
                         it + (id to RetryInfo(
-                            message = st.str("message") ?: "Retrying…",
+                            message = st.str("message") ?: "Retryingâ€¦",
                             label = a?.str("label"),
                             link = a?.str("link"),
                             title = a?.str("title"),
@@ -277,7 +277,7 @@ class Chats(
                         fallToPollinations(id)
                     // a 429 from Copilot is retried by OpenCode rather than failed
                     if (st.str("message")?.contains(COPILOT_CAPPED) == true && prefs.providerId == COPILOT_ID)
-                        fallToPollinations(id, "Copilot's free limit is used up — switched to GPT-OSS 20B (Pollinations)")
+                        fallToPollinations(id, "Copilot's free limit is used up â€” switched to GPT-OSS 20B (Pollinations)")
                 } else retries.update { it - id }
             }
             "session.idle" -> p.str("sessionID")?.let { id -> val was = statuses.value[id]; statuses.update { it - id }; saveBusy(); if (was != null) finished(id) }
@@ -304,7 +304,7 @@ class Chats(
                 // Copilot's month is used up: carry on with the model that needs no account
                 val sid = p.str("sessionID")
                 if (sid != null && msg?.contains(COPILOT_CAPPED) == true && prefs.providerId == COPILOT_ID)
-                    fallToPollinations(sid, "Copilot's free limit is used up — switched to GPT-OSS 20B (Pollinations)")
+                    fallToPollinations(sid, "Copilot's free limit is used up â€” switched to GPT-OSS 20B (Pollinations)")
             }
             else -> {
                 val sid = p.str("sessionID") ?: p.obj("info")?.str("sessionID") ?: p.obj("part")?.str("sessionID")
@@ -370,7 +370,7 @@ class Chats(
         } ?: emptyList()
     }.getOrDefault(emptyList())
 
-    private fun slug(name: String) = "team-" + name.lowercase().replace(Regex("[^a-z0-9а-яё]+"), "-").trim('-').ifBlank { "helper" }
+    private fun slug(name: String) = "team-" + name.lowercase().replace(Regex("[^a-z0-9Ð°-ÑÑ‘]+"), "-").trim('-').ifBlank { "helper" }
     private fun slugIf(name: String) = name.takeIf { it.isNotBlank() }?.let { slug(it) }
 
     /** Sessions whose rules are already set for the current mode (when the mode changes, we set them again). */
@@ -395,7 +395,7 @@ class Chats(
         } else null
         val text = expandSlash(text)
         // fresh memory goes into the instructions before the request (the agent may have changed it in the last reply);
-        // on a client the shelf lives on the server's computer and is kept there — nothing to sync locally
+        // on a client the shelf lives on the server's computer and is kept there â€” nothing to sync locally
         try {
             // Android recompresses big pictures and reads local files; a client sends the parts as they are
             // (data: URLs arrive ready; local file paths only make sense next to the server).
@@ -452,7 +452,7 @@ class Chats(
 
     /**
      * "/name args": for a skill, ask the agent to load it (the skill tool); for a command, use its template.
-     * An unknown "/…" is sent as is.
+     * An unknown "/â€¦" is sent as is.
      */
     fun expandSlash(text: String): String {
         // skills in the middle of the text: ask the agent to load each one, the text stays as is
@@ -491,7 +491,7 @@ class Chats(
         send(sessionId, text, atts, keep)
     }
 
-    /** Synthetic part with an attachment → (name, path); null if it isn't an attachment (as Android's `Attachments.parseAttached`). */
+    /** Synthetic part with an attachment â†’ (name, path); null if it isn't an attachment (as Android's `Attachments.parseAttached`). */
     private fun parseAttached(text: String): Pair<String, String?>? {
         if (!text.startsWith("<attached-file ")) return null
         val head = text.substringBefore("/>")
@@ -500,9 +500,9 @@ class Chats(
     }
 
     /** The app is on screen; the host sets it. */
-    @Volatile var foreground = false
+    @kotlin.concurrent.Volatile var foreground = false
     /** The chat open on the screen right now, if any. */
-    @Volatile var viewing: String? = null
+    @kotlin.concurrent.Volatile var viewing: String? = null
     /** Chats whose task finished while you weren't looking at them: a bright dot until you open them. */
     val doneUnseen = MutableStateFlow<Set<String>>(emptySet())
     fun seen(id: String) { if (id in doneUnseen.value) doneUnseen.update { it - id } }
@@ -518,7 +518,7 @@ class Chats(
     private var switching = false
 
     /** A free route answered with a limit: switch to Pollinations (no account) and resend the last message. */
-    private fun fallToPollinations(id: String, toast: String = "Zen is capped — switched to GPT-OSS 20B (Pollinations)") {
+    private fun fallToPollinations(id: String, toast: String = "Zen is capped â€” switched to GPT-OSS 20B (Pollinations)") {
         if (switching) return
         switching = true
         scope.launch {
@@ -616,7 +616,7 @@ class Chats(
         val where = "You run through OpenCode on the user's own computer, which they reach from the cl0udly app on their phone."
         val phone = if (prefs.phoneTools) " You can also act on the phone itself through the phone tools." else ""
         return """
-            Your name is cl0udly. You are a small white pixel cloud with two tall eyes — the mascot of the cl0udly app — and its assistant.
+            Your name is cl0udly. You are a small white pixel cloud with two tall eyes â€” the mascot of the cl0udly app â€” and its assistant.
             $where$phone
             Under the hood you are $model, running through OpenCode. If someone asks what model or AI you are, say so honestly: you are cl0udly, powered by $model via OpenCode. Never claim to be a different model.
             Be warm and a little playful, like a friendly cloud, but keep it light: a cloud joke now and then at most, never at the cost of a clear, correct answer. Do the work first. Answer in the user's language.

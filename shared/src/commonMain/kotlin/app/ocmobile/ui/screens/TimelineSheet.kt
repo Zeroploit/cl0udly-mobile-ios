@@ -32,7 +32,7 @@ import app.ocmobile.ui.theme.Oc
 // "HH:mm:ss" in plain Kotlin (as Android's SimpleDateFormat with the local zone)
 private fun hhmmss(ms: Long): String {
     val day = (ms + zoneOffsetMinutes() * 60_000L) / 1000 % 86400
-    return "%02d:%02d:%02d".format(day / 3600, day % 3600 / 60, day % 60)
+    return "${day / 3600}:" + (day % 3600 / 60).toString().padStart(2, '0') + ":" + (day % 60).toString().padStart(2, '0')
 }
 
 /**

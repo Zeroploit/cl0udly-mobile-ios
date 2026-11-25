@@ -1,4 +1,4 @@
-package app.ocmobile.data
+﻿package app.ocmobile.data
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,11 +18,11 @@ import kotlinx.serialization.json.put
  *  - manual: the user sets the lineup: name, role and model of each;
  *  - auto: the user gives a set of models and a cap, the main agent decides how many helpers
  *    to start and on which model (none for a simple task).
- * All helpers are named team-… so they can be found and removed from the config.
+ * All helpers are named team-â€¦ so they can be found and removed from the config.
  *
  * KMP port: the app is always a client of a computer running `opencode serve`, so the
  * team file inside the environment ([FILE]) and the server's own spend (`Graph.usage`)
- * are not reachable from here — the file is stubbed below, the rest is the Android code.
+ * are not reachable from here â€” the file is stubbed below, the rest is the Android code.
  */
 object Team {
     @Serializable
@@ -112,14 +112,14 @@ object Team {
      */
     private fun budget(): String? = null
 
-    fun slug(name: String) = "team-" + name.lowercase().replace(Regex("[^a-z0-9а-яё]+"), "-").trim('-').ifBlank { "helper" }
+    fun slug(name: String) = "team-" + name.lowercase().replace(Regex("[^a-z0-9Ð°-ÑÑ‘]+"), "-").trim('-').ifBlank { "helper" }
 
     private fun label(ref: String): String {
         val (p, m) = ref.split('/', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
         return Graph.catalog.model(p, m)?.name?.ifBlank { null } ?: m
     }
 
-    /** Helpers that should be in the config now: name → agent description. */
+    /** Helpers that should be in the config now: name â†’ agent description. */
     private fun agents(): Map<String, JsonObject> = when (mode) {
         "manual" -> members.filter { it.on }.associate { m ->
             slug(m.name) to buildJsonObject {
@@ -142,10 +142,10 @@ object Team {
     }
 
     /**
-     * Writes the helpers to the shared OpenCode config and disables old team-… ones. Called when the mode or lineup changes
+     * Writes the helpers to the shared OpenCode config and disables old team-â€¦ ones. Called when the mode or lineup changes
      * and before sending, if the team is on.
      */
-    @Volatile private var synced: String? = null
+    @kotlin.concurrent.Volatile private var synced: String? = null
 
     suspend fun sync(force: Boolean = false) {
         readFile()
@@ -192,7 +192,7 @@ object Team {
     }
 
     /**
-     * Writes the lineup where the agent can read it — a file next to the server, which a
+     * Writes the lineup where the agent can read it â€” a file next to the server, which a
      * client does not have. What the app last wrote is still remembered in
      * [Prefs.teamFileLast], as on Android; the helpers themselves go into the config in [sync].
      */
@@ -212,13 +212,13 @@ object Team {
     fun instruction(): String? {
         val list = agents()
         if (list.isEmpty() || !on) return manage()
-        val names = list.entries.joinToString("\n") { (k, v) -> "- $k — " + ((v["description"] as? JsonPrimitive)?.content ?: "") + " (" + cost(refOf(k)) + ")" } +
+        val names = list.entries.joinToString("\n") { (k, v) -> "- $k â€” " + ((v["description"] as? JsonPrimitive)?.content ?: "") + " (" + cost(refOf(k)) + ")" } +
             "\nThe user approves each helper the first time it is used. Prefer free and subscription helpers; paid ones spend the user's money." +
             (budget()?.let { "\n$it" } ?: "")
         return listOfNotNull(when (mode) {
             "manual" -> "You lead a team. Split the task and hand parts to these subagents with the task tool " +
                 "(run independent parts in parallel, several task calls in one message), then check and combine their results:\n$names"
-            else -> "You can lead a team of up to $max helpers. First decide whether the task needs help at all — for small tasks do it yourself. " +
+            else -> "You can lead a team of up to $max helpers. First decide whether the task needs help at all â€” for small tasks do it yourself. " +
                 "If it does, split it into self-contained parts and hand them out with the task tool (several task calls in one message run in parallel). " +
                 "Pick a stronger model for hard parts and a faster one for simple parts. Then check and combine the results. Helpers:\n$names"
         }, manage()).joinToString("\n\n")

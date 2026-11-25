@@ -1,4 +1,4 @@
-package app.ocmobile.ui.screens
+﻿package app.ocmobile.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -96,7 +96,7 @@ import kotlinx.serialization.json.contentOrNull
 // ("Now: Tuesday, 24 November 2026, 18:40 (Europe/Warsaw)"), so the offset is
 // read out of it once a minute; the rest is plain arithmetic on the epoch.
 
-@Volatile private var zoneOffsetCache: Pair<Long, Int>? = null
+@kotlin.concurrent.Volatile private var zoneOffsetCache: Pair<Long, Int>? = null
 
 internal fun zoneOffsetMinutes(): Int {
     val now = nowMillis()
@@ -116,7 +116,7 @@ internal fun zoneOffsetMinutes(): Int {
 
 internal fun hhmm(ms: Long): String {
     val day = (ms + zoneOffsetMinutes() * 60_000L) / 1000 % 86400
-    return "%02d:%02d".format(day / 3600, day % 3600 / 60)
+    return (day / 3600).toString().padStart(2, '0') + ":" + (day % 3600 / 60).toString().padStart(2, '0')
 }
 
 /** Local midnight (in epoch milliseconds) of the day [ms] falls into. */
@@ -126,12 +126,12 @@ internal fun localMidnight(ms: Long = nowMillis()): Long =
 private val WEEKDAYS = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 private val MONTHS = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
 
-/** "Tuesday, 24 November" — the notebook's date line (as Android's `SimpleDateFormat("EEEE, d MMMM", ENGLISH)`). */
+/** "Tuesday, 24 November" â€” the notebook's date line (as Android's `SimpleDateFormat("EEEE, d MMMM", ENGLISH)`). */
 internal fun englishDate(ms: Long): String {
     val days = (ms + zoneOffsetMinutes() * 60_000L) / 86_400_000L
     // 1970-01-01 was a Thursday (index 3 in a Monday-first list)
     val wd = ((days + 3) % 7).toInt().let { if (it < 0) it + 7 else it }
-    // days → civil date (Howard Hinnant's civil_from_days)
+    // days â†’ civil date (Howard Hinnant's civil_from_days)
     var z = days + 719468
     val era = (if (z >= 0) z else z - 146096) / 146097
     val doe = z - era * 146097
@@ -174,12 +174,12 @@ internal fun uriPath(url: String): String? =
 
 /** "1.2 MB" (as Android's `Attachments.human`). */
 internal fun humanSize(b: Long) = when {
-    b >= 1_000_000 -> "%.1f MB".format(b / 1e6)
-    b >= 1000 -> "%.0f KB".format(b / 1e3)
+    b >= 1_000_000 -> app.ocmobile.ui.components.Fmt.fixed(b / 1e6, 1) + " MB"
+    b >= 1000 -> app.ocmobile.ui.components.Fmt.fixed(b / 1e3, 0) + " KB"
     else -> "$b B"
 }
 
-/** Synthetic part with an attachment → (name, path); null if it isn't one (as Android's `Attachments.parseAttached`). */
+/** Synthetic part with an attachment â†’ (name, path); null if it isn't one (as Android's `Attachments.parseAttached`). */
 internal fun parseAttached(text: String): Pair<String, String?>? {
     if (!text.startsWith("<attached-file ")) return null
     val head = text.substringBefore("/>")
@@ -242,7 +242,7 @@ fun UserBubble(m: ChatMessage, onImage: (String) -> Unit, onSelect: () -> Unit, 
                 }
                 // Notebook: no bubble, a label and text with a bar on the left
                 "plain" -> Column(Modifier.fillMaxWidth().longPressAnchored(onLong)) {
-                    Txt("YOU · " + hhmm(m.info.time.created), size = 11.sp, color = c.textDim, family = Oc.label)
+                    Txt("YOU Â· " + hhmm(m.info.time.created), size = 11.sp, color = c.textDim, family = Oc.label)
                     Row(Modifier.padding(top = 4.dp).height(IntrinsicSize.Min)) {
                         Box(Modifier.width(2.dp).fillMaxHeight().background(c.accent)); Spacer(Modifier.width(12.dp))
                         Text(text, color = c.text, fontSize = 17.sp, lineHeight = 25.sp, fontFamily = Oc.body, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
@@ -264,7 +264,7 @@ fun UserBubble(m: ChatMessage, onImage: (String) -> Unit, onSelect: () -> Unit, 
                     Text(text, color = c.text, fontSize = 16.sp, lineHeight = 23.sp, fontFamily = Oc.body)
                 }
             }
-            // the same floating card as the reply's ⋯, right at the bubble
+            // the same floating card as the reply's â‹¯, right at the bubble
             if (menu) FloatMenu(
                 { menu = false },
                 listOf(
@@ -315,7 +315,7 @@ fun AssistantBlock(m: ChatMessage, last: Boolean, onImage: (String) -> Unit, onL
                     IconBtn(Ic.Volume, { Speaker.toggle(textAll) }, size = 40.dp, iconSize = 20.dp, tint = c.textDim)
                 }
                 if (onRetry != null) IconBtn(Ic.Refresh, onRetry, size = 40.dp, iconSize = 20.dp, tint = c.textDim)
-                // the model and the price are in the "⋮" menu: the row is the same size under every reply
+                // the model and the price are in the "â‹®" menu: the row is the same size under every reply
                 var at by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
                 Box(Modifier.anchorTo { at = it }) {
                     IconBtn(Ic.More, { MenuAnchor.rect = at; onLong() }, size = 40.dp, iconSize = 20.dp, tint = c.textDim)
@@ -331,14 +331,14 @@ fun AssistantBlock(m: ChatMessage, last: Boolean, onImage: (String) -> Unit, onL
         if (!first && look.reply == "plain") Unit
         else if (look.id == "hairline") Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(6.dp).background(c.accent)); Spacer(Modifier.width(10.dp))
-            Txt("OPENCODE · " + hhmm(info.time.created), size = 11.sp, color = c.textDim, family = Oc.label)
+            Txt("OPENCODE Â· " + hhmm(info.time.created), size = 11.sp, color = c.textDim, family = Oc.label)
         } else if (look.reply == "card" || look.user == "plain") Row(verticalAlignment = Alignment.CenterVertically) {
             if (look.reply == "card") { Box(Modifier.size(6.dp).clip(CircleShape).background(c.link)); Spacer(Modifier.width(8.dp)) }
-            Txt(if (look.user == "plain") "OPENCODE · " + hhmm(info.time.created) else "OpenCode", size = if (look.user == "plain") 11.sp else 13.sp, color = c.textDim, family = Oc.label, weight = if (look.reply == "card") FontWeight.Medium else null)
+            Txt(if (look.user == "plain") "OPENCODE Â· " + hhmm(info.time.created) else "OpenCode", size = if (look.user == "plain") 11.sp else 13.sp, color = c.textDim, family = Oc.label, weight = if (look.reply == "card") FontWeight.Medium else null)
             if (look.reply == "card") { Spacer(Modifier.width(6.dp)); Txt(hhmm(info.time.created), size = 12.sp, color = c.textDim) }
         }
-        // Like in Claude: consecutive steps (thoughts, commands, reads) as one line "Thought, ran 2 commands ›"
-        val segments = remember(parts.size, parts.fold(0) { a, p -> a * 31 + System.identityHashCode(p.raw) }) { segment(parts) }
+        // Like in Claude: consecutive steps (thoughts, commands, reads) as one line "Thought, ran 2 commands â€º"
+        val segments = remember(parts.size, parts.fold(0) { a, p -> a * 31 + p.raw.hashCode() }) { segment(parts) }
         // the session isn't running anymore (the server stopped mid-step): don't spin the icon forever
         val busyNow = Graph.chats.statuses.collectAsState().value.containsKey(info.sessionID)
         val running = last && info.time.completed == null && busyNow
@@ -355,9 +355,9 @@ fun AssistantBlock(m: ChatMessage, last: Boolean, onImage: (String) -> Unit, onL
                 "file" -> if (isImagePart(p)) p.raw.str("url")?.let { u -> ImageThumb(u, TILE, { onImage(u) }, Modifier.clip(Oc.round(18.dp))) }
                     else PartFileChip(p)
                 "subtask" -> InfoLine(Ic.Bot, "Subtask: " + (p.raw.str("description") ?: p.raw.str("prompt") ?: ""))
-                "patch" -> InfoLine(Ic.Diff, "Patch · ${p.raw.arr("files")?.size ?: 0} files")
+                "patch" -> InfoLine(Ic.Diff, "Patch Â· ${p.raw.arr("files")?.size ?: 0} files")
                 "compaction" -> InfoLine(Ic.Sparkle, "Context compacted")
-                "retry" -> InfoLine(Ic.Refresh, "Retrying…")
+                "retry" -> InfoLine(Ic.Refresh, "Retryingâ€¦")
             }
         }
         val outFiles = remember(parts.size, parts.lastOrNull()?.text?.length, info.time.completed) {
@@ -517,7 +517,7 @@ private fun isStep(p: Part): Boolean = when (p.type) {
     else -> false
 }
 
-/** Reply parts → groups: consecutive steps are gathered together, the rest go one by one. */
+/** Reply parts â†’ groups: consecutive steps are gathered together, the rest go one by one. */
 private fun segment(parts: List<Part>): List<List<Part>> {
     val out = ArrayList<List<Part>>()
     var cur = ArrayList<Part>()
@@ -564,7 +564,7 @@ internal fun stepsSummary(parts: List<Part>): String {
         if (web > 0) add("browsed " + n(web, "a page", "pages"))
         if (other > 0) add("used " + n(other, "a tool", "tools"))
     }
-    return bits.joinToString(", ").replaceFirstChar { it.uppercase() } + if (failed > 0) " · $failed failed" else ""
+    return bits.joinToString(", ").replaceFirstChar { it.uppercase() } + if (failed > 0) " Â· $failed failed" else ""
 }
 
 // ---------- tools ----------
@@ -635,7 +635,7 @@ fun ToolCard(p: Part, onImage: (String) -> Unit) {
                 } else {
                     input?.firstStr("command")?.let { CodeBlock(it, "shell") }
                     if (diff != null && diff.isNotBlank()) DiffView(diff)
-                    else if (output.isNotBlank()) CodeBlock(output.take(6000) + if (output.length > 6000) "\n… (${output.length - 6000} more chars)" else "", if (status == "error") "error" else "output")
+                    else if (output.isNotBlank()) CodeBlock(output.take(6000) + if (output.length > 6000) "\nâ€¦ (${output.length - 6000} more chars)" else "", if (status == "error") "error" else "output")
                     state?.arr("attachments")?.forEach { a ->
                         val o = a as? JsonObject ?: return@forEach
                         if (o.str("mime")?.startsWith("image/") == true) o.str("url")?.let { u -> ImageThumb(u, 200.dp, { onImage(u) }) }
@@ -721,7 +721,7 @@ fun QuestionPanel(q: QuestionReq, directory: String?) {
         Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 6.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
                 if (q.questions.size > 1 || item.header.isNotBlank()) Txt(
-                    listOfNotNull(item.header.takeIf { it.isNotBlank() }, if (q.questions.size > 1) "${page + 1} of ${q.questions.size}" else null).joinToString(" · "),
+                    listOfNotNull(item.header.takeIf { it.isNotBlank() }, if (q.questions.size > 1) "${page + 1} of ${q.questions.size}" else null).joinToString(" Â· "),
                     size = 13.sp, color = c.textDim,
                 )
                 Txt(item.question, size = 16.sp, lineHeight = 22.sp)
@@ -805,7 +805,7 @@ private fun QuestionResult(input: JsonObject?, state: JsonObject?) {
         Txt("Question", size = 14.sp, color = c.textDim)
         qs.forEachIndexed { i, q ->
             Txt(q, size = 16.sp, color = c.textDim, lineHeight = 22.sp)
-            val a = answers.getOrNull(i)?.takeIf { it.isNotBlank() } ?: if (state?.str("status") == "error") "Skipped" else if (state?.str("status") == "completed") (state.str("output")?.lines()?.lastOrNull { it.isNotBlank() } ?: "") else "Waiting for your answer…"
+            val a = answers.getOrNull(i)?.takeIf { it.isNotBlank() } ?: if (state?.str("status") == "error") "Skipped" else if (state?.str("status") == "completed") (state.str("output")?.lines()?.lastOrNull { it.isNotBlank() } ?: "") else "Waiting for your answerâ€¦"
             Txt(a, size = 16.sp)
         }
     }

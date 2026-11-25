@@ -108,7 +108,7 @@ fun PixelWordmark(modifier: Modifier = Modifier, animate: Boolean = true, eggs: 
                 if (kind >= 0 && p < 1f) when (kind) {
                     0 -> { // wave: the letters hop one after another
                         val ph = (p * 1.7f - li * 0.1f).coerceIn(0f, 1f)
-                        oy = -kotlin.math.sin(ph * Math.PI.toFloat()) * cell * 2.4f
+                        oy = -kotlin.math.sin(ph * kotlin.math.PI.toFloat()) * cell * 2.4f
                     }
                     1 -> { // scan: a stripe runs from left to right and swaps "open" and "code"
                         val x = p * 1.4f - 0.2f

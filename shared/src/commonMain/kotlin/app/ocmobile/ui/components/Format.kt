@@ -11,7 +11,7 @@ package app.ocmobile.ui.components
 object Fmt {
 
     /** Java `%.<digits>f` semantics: scale, round half away from zero, print with fixed digits. */
-    private fun fixed(x: Double, digits: Int): String {
+    internal fun fixed(x: Double, digits: Int): String {
         val f = when (digits) { 0 -> 1L; 1 -> 10L; 2 -> 100L; 3 -> 1000L; else -> {
             var p = 1L; repeat(digits) { p *= 10 }; p
         } }
