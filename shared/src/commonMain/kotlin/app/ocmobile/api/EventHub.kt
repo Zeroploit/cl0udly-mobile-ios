@@ -52,7 +52,8 @@ class EventHub(private val api: OpenCodeApi) {
         var backoff = 500L
         while (currentCoroutineContext().isActive) {
             try {
-                withContext(Dispatchers.IO) { stream { backoff = 500L } }
+                // Default, not IO: Dispatchers.IO does not exist on Kotlin/Native.
+                withContext(Dispatchers.Default) { stream { backoff = 500L } }
             } catch (_: Exception) { }
             connected.value = false
             delay(backoff)
