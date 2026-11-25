@@ -32,8 +32,15 @@ Android app through it.
 | `api/Models.kt` | `Session`, `MessageInfo`, `Part`, serializers, parsing helpers. |
 | `data/Prefs.kt` | Over `SettingsStore`: `SharedPreferences` on Android, `NSUserDefaults` on iOS. Keys unchanged. |
 | `api/OpenCodeApi.kt` | The whole REST surface, on Ktor. The endpoint arrives as a lambda instead of being read from `Graph`. |
-| SSE | `OpenCodeApi.streamLines`; the hub in `:app` parses the lines. |
-| `ui/Connect.kt` | The iOS start: address + password, then the server's session list. |
+| `api/EventHub.kt` | The SSE connection. It no longer decides between local and remote by itself: `start(scope, targets)` takes that decision as a flow. |
+| `data/Chat.kt` | One open chat's messages and streamed parts. Deltas are batched by a coroutine on the UI dispatcher instead of `Handler`/`Looper`. |
+| `data/Chats.kt` | The client half of `ChatHub`: sessions, statuses, permissions, questions, sending, aborting. The Android-only parts (team, memory, sounds, notifications, local runtime) stay in `:app`. |
+| `ui/theme/Theme.kt` | The palettes of `Looks.kt` and the `Oc` object. Fonts are the same files, shipped as Compose resources. |
+| `ui/theme/Icons.kt` | The `Ic` icon set, unchanged: it was already pure Compose vectors. |
+| `ui/components/Kit.kt` | `Txt`, `Ico`, `CircleBtn`, `RoundBtn`, the spring `tap`, the top bar and the model pill. |
+| `ui/Markdown.kt` | Replies at 18/30 sp in the reply face, code blocks, inline bold/italic/code. |
+| `ui/App.kt` | Home, chat, drawer, permission and question cards, the pixel clouds and mascot. |
+| `ui/Connect.kt` | The first screen: address + password, probed against `/global/health`. |
 
 Platform seams in `shared/`:
 
@@ -41,7 +48,17 @@ Platform seams in `shared/`:
 - `PlatformInfo` — name, whether a local server is possible.
 - `randomToken` — `SecureRandom` on Android/JVM, UUIDs on iOS.
 - `nowMillis` — `System.currentTimeMillis()` on Android/JVM, `NSDate` on iOS.
+- `nowStamp` — the "Now: …" line the agent is told; `java.time` vs `NSDateFormatter`.
 - `httpEngineFactory` — OkHttp on Android/JVM, Darwin on iOS.
+- `rememberMotionEnabled` — the animator scale on Android, always on elsewhere.
+
+## Looking at the UI without a Mac
+
+`./gradlew :shared:run` opens the shared Compose tree in a phone-sized window.
+`preview.properties` decides what it shows: `server=` skips the connect form,
+`session=` opens that chat, `edition=claude` switches the warm look. A small
+stand-in server (`node tools/preview-server.mjs`) answers with the 1.x shapes the
+client parses, so the screens can be looked at with realistic data.
 
 ## Verified
 
@@ -65,13 +82,23 @@ Platform seams in `shared/`:
 
 ## Next
 
-1. `Workspace`: 17 files write to `Graph.paths.host()` (`/root/work`,
-   `/root/memory`, `/root/.config/opencode`). On iOS those paths exist on the
-   server, not on the phone, so they need a contract with a local and a remote
-   implementation.
-2. `Graph` carries an `Application`; nothing in the data layer compiles in
-   `commonMain` until it does not.
-3. `data/Chat.kt` batches SSE deltas with `android.os.Handler`/`Looper` — a
-   hidden Android dependency in the data layer.
-4. The chat itself: `ChatHub`, the session screen and the composer are the
-   remaining large pieces.
+1. The rich message parts: tool cards that expand to their output, diffs,
+   images, the "steps" timeline with thought/command runs.
+2. The parts of the frame the phone shows and iOS does not yet: the greeting
+   pills, the mascot's moods and animations, the drawer's staging, sheets.
+3. Attachments and dictation (camera, photos, speech) — they need the iOS
+   pickers and `SFSpeechRecognizer`, behind the shared composer.
+4. `ChatHub` in `:app` can now delegate its message/session half to `Chats` and
+   `Chat`, leaving it with the Android-only extras. That would end the
+   duplication instead of letting the two drift.
+5. `Workspace`: 17 files write to `Graph.paths.host()`. On iOS those paths exist
+   on the server, not on the phone, so they need a contract with a local and a
+   remote implementation — only for features that exist on both sides.
+
+## OpenCode versions
+
+The app speaks the 1.x API (`/session`, `/global/health`, `/global/event`). A
+server running OpenCode **2.x** answers on `/api/…` with wrapped `{ "data": … }`
+bodies and different field names, so the 1.x client does not talk to it. If the
+computer runs 2.x, either run a 1.x server for the app or add a second transport
+to `OpenCodeApi` (detected at connect time).
