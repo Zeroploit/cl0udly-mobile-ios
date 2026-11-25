@@ -7,13 +7,29 @@ import androidx.compose.runtime.setValue
 import app.ocmobile.api.MessageInfo
 import app.ocmobile.api.OcJson
 import app.ocmobile.api.OpenCodeApi
-import app.ocmobile.api.TimeInfo
 import app.ocmobile.api.Part
+import app.ocmobile.api.TimeInfo
 import app.ocmobile.api.arr
 import app.ocmobile.api.obj
 import app.ocmobile.api.str
+import app.ocmobile.platform.nowMillis
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+/**
+ * A file the user attached, in the only form shared code needs: what it is and
+ * where the server can read it. Android's own `Attachment` wraps a `Uri`, which
+ * exists nowhere else, so the app converts at the one call site that sends.
+ */
+data class LocalFile(val mime: String, val name: String, val url: String) {
+    val isImage get() = mime.startsWith("image/")
+}
 
 class ChatMessage(val id: String, info: MessageInfo) {
     var info by mutableStateOf(info)
@@ -27,8 +43,16 @@ class ChatMessage(val id: String, info: MessageInfo) {
 
 data class Todo(val content: String, val status: String, val priority: String)
 
-/** State of an open chat. All changes come from the main thread (SSE events and loading). */
-class Chat(val id: String, private val api: OpenCodeApi) {
+/**
+ * State of an open chat. All changes come from the main thread (SSE events and
+ * loading).
+ *
+ * [scope] exists for one reason: tokens arrive dozens per second, so text
+ * deltas are buffered and applied at most once every ~24 ms. Android used
+ * `Handler`/`Looper` for that; a coroutine on the UI dispatcher does the same
+ * job on every platform.
+ */
+class Chat(val id: String, private val api: OpenCodeApi, private val scope: CoroutineScope) {
     var directory: String? = null
     val messages = mutableStateListOf<ChatMessage>()
     var loading by mutableStateOf(true)
@@ -38,21 +62,20 @@ class Chat(val id: String, private val api: OpenCodeApi) {
     val initialIds = HashSet<String>()
     var live = false
 
-    /** Shows a sent message right away, before the server confirms it. */
     /** Our message shown at once, before the server has it; with its pictures, so text and images arrive together. */
-    fun addLocalUser(text: String, atts: List<Attachment> = emptyList()): String {
-        val id = "zzzz-local-" + System.nanoTime()
-        val raw = kotlinx.serialization.json.buildJsonObject {
-            put("id", kotlinx.serialization.json.JsonPrimitive("$id-p")); put("messageID", kotlinx.serialization.json.JsonPrimitive(id))
-            put("type", kotlinx.serialization.json.JsonPrimitive("text")); put("text", kotlinx.serialization.json.JsonPrimitive(text))
+    fun addLocalUser(text: String, files: List<LocalFile> = emptyList()): String {
+        val id = "zzzz-local-" + nowMillis() + "-" + (localSeq++)
+        val raw = buildJsonObject {
+            put("id", JsonPrimitive("$id-p")); put("messageID", JsonPrimitive(id))
+            put("type", JsonPrimitive("text")); put("text", JsonPrimitive(text))
         }
-        val m = ChatMessage(id, MessageInfo(id = id, sessionID = this.id, role = "user", time = TimeInfo(created = System.currentTimeMillis())))
+        val m = ChatMessage(id, MessageInfo(id = id, sessionID = this.id, role = "user", time = TimeInfo(created = nowMillis())))
         m.parts.add(Part(raw))
-        atts.forEachIndexed { i, a ->
-            m.parts.add(Part(kotlinx.serialization.json.buildJsonObject {
-                put("id", kotlinx.serialization.json.JsonPrimitive("$id-f$i")); put("messageID", kotlinx.serialization.json.JsonPrimitive(id))
-                put("type", kotlinx.serialization.json.JsonPrimitive("file")); put("mime", kotlinx.serialization.json.JsonPrimitive(a.mime))
-                put("filename", kotlinx.serialization.json.JsonPrimitive(a.name)); put("url", kotlinx.serialization.json.JsonPrimitive(a.uri.toString()))
+        files.forEachIndexed { i, f ->
+            m.parts.add(Part(buildJsonObject {
+                put("id", JsonPrimitive("$id-f$i")); put("messageID", JsonPrimitive(id))
+                put("type", JsonPrimitive("file")); put("mime", JsonPrimitive(f.mime))
+                put("filename", JsonPrimitive(f.name)); put("url", JsonPrimitive(f.url))
             }))
         }
         messages.add(m)
@@ -71,7 +94,14 @@ class Chat(val id: String, private val api: OpenCodeApi) {
             messages.clear()
             messages.addAll(fresh)
             // a message we showed right away and the server hasn't returned yet must not blink and vanish
-            locals.forEach { l -> if (fresh.none { it.info.isUser && it.parts.firstOrNull()?.text == l.parts.firstOrNull()?.text && it.id > "" && (it.info.time.created >= l.info.time.created - 5000) }) messages.add(l) }
+            locals.forEach { l ->
+                val dup = fresh.any { f ->
+                    f.info.isUser &&
+                        f.parts.firstOrNull()?.text == l.parts.firstOrNull()?.text &&
+                        f.info.time.created >= l.info.time.created - 5000
+                }
+                if (!dup) messages.add(l)
+            }
             initialIds.clear(); initialIds.addAll(fresh.map { it.id })
             live = true
             loadError = null
@@ -85,8 +115,6 @@ class Chat(val id: String, private val api: OpenCodeApi) {
 
     private val pending = LinkedHashMap<Pair<String, String>, StringBuilder>()
     private var flushQueued = false
-    private val frameHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private val flusher = Runnable { flushQueued = false; flushDeltas() }
 
     private fun flushDeltas() {
         if (pending.isEmpty()) return
@@ -123,7 +151,10 @@ class Chat(val id: String, private val api: OpenCodeApi) {
                 val pid = props.str("partID") ?: return
                 // Tokens arrive dozens per second: buffer them and apply at most once per frame.
                 pending.getOrPut(mid to pid) { StringBuilder() }.append(props.str("delta") ?: "")
-                if (!flushQueued) { flushQueued = true; frameHandler.postDelayed(flusher, 24) }
+                if (!flushQueued) {
+                    flushQueued = true
+                    scope.launch { delay(24); flushQueued = false; flushDeltas() }
+                }
             }
             "message.part.removed" -> {
                 val m = find(props.str("messageID") ?: return) ?: return
@@ -144,8 +175,13 @@ class Chat(val id: String, private val api: OpenCodeApi) {
         return m
     }
 
-    private fun parseTodos(a: kotlinx.serialization.json.JsonArray) = a.mapNotNull {
+    private fun parseTodos(a: JsonArray) = a.mapNotNull {
         val o = it as? JsonObject ?: return@mapNotNull null
         Todo(o.str("content") ?: "", o.str("status") ?: "pending", o.str("priority") ?: "medium")
+    }
+
+    private companion object {
+        /** Local ids issued in the same millisecond would collide. */
+        private var localSeq = 0
     }
 }

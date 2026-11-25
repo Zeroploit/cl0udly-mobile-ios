@@ -103,7 +103,7 @@ class ChatHub(private val api: OpenCodeApi, private val events: EventHub, privat
     fun children(id: String): List<Session> = all.value.values.filter { it.parentID == id }.sortedBy { it.time.created }
 
     fun chat(id: String): Chat = chats.getOrPut(id) {
-        Chat(id, api).also { it.directory = session(id)?.directory }
+        Chat(id, api, Graph.scope).also { it.directory = session(id)?.directory }
     }
 
     fun forget(id: String) { chats.remove(id) }
@@ -317,7 +317,9 @@ class ChatHub(private val api: OpenCodeApi, private val events: EventHub, privat
             api.setSessionPermission(sessionId, dir, permissionRules(sessionId = sessionId) ?: JsonArray(emptyList()))
             ruled[sessionId] = ruleKey
         }
-        val localId = if (keepParts.isEmpty()) chat(sessionId).addLocalUser(text, atts) else null
+        val localId = if (keepParts.isEmpty()) {
+            chat(sessionId).addLocalUser(text, atts.map { LocalFile(it.mime, it.name, it.uri.toString()) })
+        } else null
         val text = expandSlash(text)
         // fresh memory goes into the instructions before the request (the agent may have changed it in the last reply)
         if (prefs.memoryEnabled && !Graph.devices.isRemote) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Memory.sync() }
@@ -465,7 +467,8 @@ class ChatHub(private val api: OpenCodeApi, private val events: EventHub, privat
     }
 }
 
-data class RetryInfo(val message: String, val label: String?, val link: String?, val title: String?, val nextAt: Long? = null)
+// RetryInfo now lives in :shared (app.ocmobile.data.RetryInfo): the iOS client
+// needs it too, and it is plain data with nothing Android about it.
 
 data class Attachment(val uri: Uri, val mime: String, val name: String) {
     val isImage get() = mime.startsWith("image/")

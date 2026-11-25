@@ -20,10 +20,12 @@ import app.ocmobile.data.Scheduler
 import app.ocmobile.data.UsageTracker
 import app.ocmobile.runtime.RuntimeController
 import app.ocmobile.runtime.RuntimePaths
+import app.ocmobile.runtime.RuntimeState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import app.ocmobile.data.Vault
 
@@ -74,11 +76,22 @@ object Graph {
         if (!prefs.onboarded && paths.rootfsReady && prefs.loginSeen) prefs.onboarded = true
         // no local server on this phone: the tour waits for it, so go straight to the app and connect a computer
         if (!paths.localSupported) { prefs.onboarded = true; prefs.loginSeen = true }
-        events = EventHub(api, runtime)
+        events = EventHub(api)
         chats = ChatHub(api, events, prefs)
         usage = UsageTracker(a, api, prefs, events)
         catalog = Catalog(api, prefs, events)
-        events.start(scope)
+        // The stream follows whatever is actually reachable: a chosen remote
+        // device first, then the local server once it reports Running.
+        events.start(
+            scope,
+            combine(runtime.state, devices.activeId) { state, device ->
+                when {
+                    device.isNotEmpty() -> "remote:$device"
+                    state is RuntimeState.Running -> "local"
+                    else -> ""
+                }
+            },
+        )
         chats.start()
         catalog.start()
         usage.start()

@@ -42,6 +42,9 @@ kotlin {
             implementation(compose.foundation)
             implementation(compose.material3)
             implementation(compose.ui)
+            // Fonts ship with the app: the Android res/font files are copied into
+            // composeResources so iOS and the desktop preview use the same faces.
+            implementation(compose.components.resources)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             api(libs.ktor.client.core)
@@ -53,6 +56,10 @@ kotlin {
             // The same engine as Android, so the canary on Windows exercises the
             // engine the phone uses.
             implementation(libs.ktor.client.okhttp)
+            // Desktop is not a shipping target: it exists so the shared UI can be
+            // run and looked at on Windows, which is where the app is developed.
+            implementation(compose.desktop.currentOs)
+            implementation(libs.kotlinx.coroutines.swing)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
@@ -63,4 +70,19 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
     }
+}
+
+// `./gradlew :shared:run` opens the shared UI in a phone-sized window on the
+// desktop. Nothing is packaged or distributed from here; it is a way to look at
+// the Compose code that ships on iOS and Android without either device.
+compose.desktop {
+    application {
+        mainClass = "app.ocmobile.preview.MainKt"
+    }
+}
+
+compose.resources {
+    // A stable package for the generated `Res`: shared code references it by name.
+    publicResClass = true
+    packageOfResClass = "app.ocmobile.resources"
 }

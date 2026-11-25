@@ -1,25 +1,32 @@
 package app.ocmobile.api
 
-import app.ocmobile.Graph
-import app.ocmobile.runtime.RuntimeController
-import app.ocmobile.runtime.RuntimeState
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.JsonObject
 
-/** One global SSE connection to `/global/event`: events of all projects and sessions. */
-class EventHub(private val api: OpenCodeApi, private val runtime: RuntimeController) {
+/**
+ * One global SSE connection to `/global/event`: events of all projects and
+ * sessions.
+ *
+ * It used to decide by itself whether to talk to the local server or to a
+ * selected remote device, which meant reaching into [app.ocmobile.Graph] and
+ * the Android runtime. Now [start] receives that decision as a flow of targets:
+ * an empty string means "not connected", anything else is just a label used to
+ * restart the stream when it changes. Android builds it from the running
+ * runtime and the chosen device; iOS, which has no local server at all, passes a
+ * constant.
+ */
+class EventHub(private val api: OpenCodeApi) {
     data class Event(val directory: String?, val type: String, val props: JsonObject)
 
     val events = MutableSharedFlow<Event>(extraBufferCapacity = 1024)
@@ -27,13 +34,16 @@ class EventHub(private val api: OpenCodeApi, private val runtime: RuntimeControl
     /** Grows on every (re)connect: subscribers must reload their state. */
     val generation = MutableStateFlow(0)
 
-    fun start(scope: CoroutineScope) {
+    /**
+     * [target] must emit a different label every time the stream has to be
+     * rebuilt, and `""` while there is nothing to connect to.
+     */
+    fun start(scope: CoroutineScope, target: Flow<String>) {
         scope.launch {
-            // Connect to the local server when it runs, or to the selected remote device.
-            combine(runtime.state, Graph.devices.activeId) { s, d -> if (d.isNotEmpty()) "remote:$d" else if (s is RuntimeState.Running) "local" else "" }
+            target
                 .distinctUntilChanged()
-                .collectLatest { target ->
-                    if (target.isNotEmpty()) connectLoop() else connected.value = false
+                .collectLatest { label ->
+                    if (label.isNotEmpty()) connectLoop() else connected.value = false
                 }
         }
     }
