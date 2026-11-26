@@ -6,8 +6,10 @@ import app.ocmobile.data.Catalog
 import app.ocmobile.data.Chats
 import app.ocmobile.data.Devices
 import app.ocmobile.data.Prefs
+import app.ocmobile.data.Scheduler
 import app.ocmobile.data.UsageTracker
 import app.ocmobile.net.ServerEndpoint
+import app.ocmobile.runtime.RemoteRuntime
 import app.ocmobile.ui.ServerSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +43,8 @@ object Graph {
     lateinit var usage: UsageTracker
         private set
 
+    /** The connection, in the shape the settings/setup screens expect from the Android runtime. */
+    val runtime = RemoteRuntime()
     /** iOS is remote-only: no local server, no device switching. */
     val devices = Devices()
 
@@ -55,10 +59,13 @@ object Graph {
         chats = Chats(api, events, prefs, scope)
         catalog = Catalog(api, prefs, events)
         usage = UsageTracker(api, prefs, events)
+        runtime.start()
         // The stream targets the one server there is: the computer.
         events.start(scope, flowOf("remote"))
         chats.start()
         catalog.start()
         usage.start()
+        // Scheduled tasks only fire while the app is open (iOS has no background alarms).
+        Scheduler.start()
     }
 }

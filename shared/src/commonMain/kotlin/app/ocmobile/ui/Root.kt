@@ -61,12 +61,43 @@ import app.ocmobile.ui.components.FileViewerHost
 import app.ocmobile.ui.components.Spinner
 import app.ocmobile.ui.components.Txt
 import app.ocmobile.ui.components.trackTouches
+import app.ocmobile.ui.screens.AboutScreen
+import app.ocmobile.ui.screens.AgentsScreen
+import app.ocmobile.ui.screens.ArtifactsScreen
+import app.ocmobile.ui.screens.BackupScreen
+import app.ocmobile.ui.screens.CapabilitiesScreen
 import app.ocmobile.ui.screens.ChatScreen
+import app.ocmobile.ui.screens.CodeScreen
+import app.ocmobile.ui.screens.ConfigEditorScreen
+import app.ocmobile.ui.screens.ConnectScreen
+import app.ocmobile.ui.screens.ConnectorsScreen
+import app.ocmobile.ui.screens.ConsoleLoginScreen
 import app.ocmobile.ui.screens.DrawerContent
+import app.ocmobile.ui.screens.EditionScreen
+import app.ocmobile.ui.screens.GitHubScreen
 import app.ocmobile.ui.screens.HomeScreen
+import app.ocmobile.ui.screens.LoginScreen
+import app.ocmobile.ui.screens.MascotRoom
+import app.ocmobile.ui.screens.MascotSettings
 import app.ocmobile.ui.screens.MemoryScreen
+import app.ocmobile.ui.screens.ModelsScreen
+import app.ocmobile.ui.screens.OcSettingsScreen
+import app.ocmobile.ui.screens.Onboarding
+import app.ocmobile.ui.screens.PermissionsScreen
 import app.ocmobile.ui.screens.PreviewScreen
+import app.ocmobile.ui.screens.ProfileScreen
+import app.ocmobile.ui.screens.ProjectsScreen
+import app.ocmobile.ui.screens.ProvidersScreen
+import app.ocmobile.ui.screens.RecentsScreen
+import app.ocmobile.ui.screens.ScheduledScreen
+import app.ocmobile.ui.screens.ServerScreen
+import app.ocmobile.ui.screens.SettingsScreen
+import app.ocmobile.ui.screens.SideMenuScreen
+import app.ocmobile.ui.screens.SkillEditScreen
+import app.ocmobile.ui.screens.SkillsScreen
 import app.ocmobile.ui.screens.TeamScreen
+import app.ocmobile.ui.screens.UsageScreen
+import app.ocmobile.ui.screens.AppearanceScreen
 import app.ocmobile.ui.theme.Ic
 import app.ocmobile.ui.theme.Oc
 import kotlinx.coroutines.delay
@@ -92,6 +123,10 @@ fun OcRoot() {
         FileViewerHost()
         ToastHost()
         UndoHost()
+        // First launch: the tour sits on top of the shell until it is done, as on Android.
+        if (!Graph.prefs.onboarded) {
+            Box(Modifier.fillMaxSize().background(c.bg)) { Onboarding() }
+        }
     }
 }
 
@@ -123,6 +158,30 @@ private fun Shell() {
     // the server connection: catalog and sessions reload once the stream is up
     val connected by Graph.events.connected.collectAsState()
     LaunchedEffect(connected) { if (connected) { Graph.catalog.refresh(); Graph.chats.refreshSessions() } }
+
+    // Screens that ask to be opened from anywhere (a message, the mascot, a tool): a route string.
+    val openReq by Graph.chats.openRequest.collectAsState()
+    LaunchedEffect(openReq) {
+        val r = openReq ?: return@LaunchedEffect
+        when {
+            r == "route:settings" -> { drawer.close(); nav.root(Route.Settings) }
+            r == "route:home" -> { drawer.close(); nav.root(Route.Home) }
+            r == "route:code" -> { drawer.close(); nav.root(Route.Code) }
+            r == "route:memory" -> { drawer.close(); nav.root(Route.Memory) }
+            r == "route:drawer" -> drawer.open()
+            r == "route:onboarding" -> Graph.prefs.onboarded = false
+            r == "route:onboarded" -> Graph.prefs.onboarded = true
+            r == "route:github" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.GitHub) }
+            r == "route:backup" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.Backup) }
+            r == "route:skills" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.Skills) }
+            r == "route:about" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.About) }
+            r.startsWith("route:connect:") -> { drawer.close(); nav.push(Route.Connect(r.removePrefix("route:connect:"))) }
+            r.startsWith("route:console:") -> { drawer.close(); nav.push(Route.ConsoleLogin(r.removePrefix("route:console:"))) }
+            r.startsWith("route:preview:") -> { drawer.close(); nav.push(Route.Preview(r.removePrefix("route:preview:"), (nav.current as? Route.Chat)?.id)) }
+            !r.startsWith("route:") -> nav.openChat(r)
+        }
+        Graph.chats.openRequest.value = null
+    }
 
     ModalNavigationDrawer(
         drawerState = drawer,
@@ -244,8 +303,42 @@ private fun RouteContent(r: Route, nav: Nav, open: () -> Unit) {
         Route.Team -> TeamScreen(nav)
         Route.Memory -> MemoryScreen(nav)
         is Route.Preview -> PreviewScreen(r.url, r.sessionId, nav)
-        // the rest of the sections exist on Android only for now
-        else -> IosSoon(nav)
+        // sections and settings
+        Route.Settings -> SettingsScreen(nav, open)
+        Route.Capabilities -> CapabilitiesScreen(nav)
+        Route.OcSettings -> OcSettingsScreen(nav)
+        Route.Appearance -> AppearanceScreen(nav)
+        Route.Edition -> EditionScreen(nav)
+        Route.SideMenu -> SideMenuScreen(nav)
+        Route.Profile -> ProfileScreen(nav)
+        Route.About -> AboutScreen(nav)
+        Route.Server -> ServerScreen(nav)
+        Route.ConfigEditor -> ConfigEditorScreen(nav)
+        Route.Connectors -> ConnectorsScreen(nav)
+        // model, agents and accounts
+        Route.Models -> ModelsScreen(nav)
+        Route.PermissionsCfg -> PermissionsScreen(nav)
+        Route.Agents -> AgentsScreen(nav)
+        Route.Providers -> ProvidersScreen(nav)
+        is Route.Connect -> ConnectScreen(r.providerId, nav)
+        Route.Login -> LoginScreen(nav)
+        is Route.ConsoleLogin -> ConsoleLoginScreen(r.method, nav)
+        Route.Skills -> SkillsScreen(nav)
+        is Route.SkillEdit -> SkillEditScreen(r.name, nav)
+        // chats, code and work
+        Route.Recents -> RecentsScreen(nav, open)
+        Route.Projects -> ProjectsScreen(nav, open)
+        Route.Code -> CodeScreen(nav, open)
+        Route.Artifacts -> ArtifactsScreen(nav, open)
+        Route.Scheduled -> ScheduledScreen(nav, open)
+        Route.Usage -> UsageScreen(nav)
+        Route.GitHub -> GitHubScreen(nav)
+        Route.Backup -> BackupScreen(nav)
+        // the mascot
+        Route.Mascot -> MascotRoom(nav)
+        Route.MascotSettings -> MascotSettings(nav)
+        // iOS never runs the server itself, so these sections have nothing to show
+        Route.PhoneTools -> IosSoon(nav)
     }
 }
 
