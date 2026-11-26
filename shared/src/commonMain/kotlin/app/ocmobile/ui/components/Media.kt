@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.ocmobile.Graph
+import app.ocmobile.platform.PlatformMedia
 import app.ocmobile.platform.nowMillis
 import app.ocmobile.ui.theme.Ic
 import coil3.compose.AsyncImage
@@ -116,17 +117,29 @@ fun ImageViewer(urls: List<String>, start: Int, onDismiss: () -> Unit) {
 private fun mimeOf(url: String) = if (url.startsWith("data:")) url.substringAfter("data:").substringBefore(';') else "image/png"
 
 /**
- * Android wrote the image into the gallery (MediaStore) and toasted where it went. A client
- * has no gallery of the environment to write into, so saving is a quiet no-op; the button
- * keeps its place until a platform "save to Photos" lands here.
+ * Save to the phone: iOS puts the share sheet's "Save to Files" in front of the user; the desktop
+ * preview has no sheet and does nothing.
  */
-private fun saveImage(url: String) { }
+private fun saveImage(url: String) {
+    val bytes = imageBytes(url) ?: return
+    val mime = mimeOf(url)
+    PlatformMedia.saveFile(bytes, "cl0udly-${nowMillis()}.${extOf(mime)}", mime)
+}
 
 /**
- * Android opened the system share sheet with the image file. A client has no share sheet of
- * its own yet, so sharing is a quiet no-op; the button keeps its place.
+ * Share the image through the system sheet. A picture that only exists as a server URL is shared
+ * as its link: the sheet cannot read bytes the app never downloaded.
  */
-private fun shareImage(url: String) { }
+private fun shareImage(url: String) {
+    val bytes = imageBytes(url) ?: run {
+        if (url.startsWith("http")) PlatformMedia.shareText(url)
+        return
+    }
+    val mime = mimeOf(url)
+    PlatformMedia.shareFile(bytes, "cl0udly-${nowMillis()}.${extOf(mime)}", mime)
+}
+
+private fun extOf(mime: String): String = mime.substringAfter('/').substringBefore(';').replace("jpeg", "jpg").ifBlank { "png" }
 
 // ---------- base64 decoding, hand-rolled like the encoder in api/Base64.kt ----------
 

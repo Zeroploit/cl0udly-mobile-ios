@@ -56,6 +56,7 @@ import app.ocmobile.api.obj
 import app.ocmobile.api.str
 import app.ocmobile.data.Attachment
 import app.ocmobile.data.ChatMessage
+import app.ocmobile.platform.PlatformMedia
 import app.ocmobile.platform.nowMillis
 import app.ocmobile.platform.nowStamp
 import app.ocmobile.ui.components.CodeBlock
@@ -383,13 +384,19 @@ fun AssistantBlock(m: ChatMessage, last: Boolean, onImage: (String) -> Unit, onL
 internal fun personaOn(): Boolean = Graph.prefs.edition == "cloud" && Graph.prefs.mascotPersona
 
 /**
- * Reading a reply aloud uses the platform's text-to-speech on Android
- * (`android.speech.tts`). Common code has no speech API yet, so the button
- * stays and toggling is a quiet no-op until a platform voice lands here.
+ * Reading a reply aloud: the platform's text-to-speech behind [PlatformMedia.speak]. A tap while
+ * the voice is talking stops it; a tap when it finished starts the reply again.
  */
 object Speaker {
     private var speaking = false
-    fun toggle(text: String) { speaking = !speaking }
+    fun toggle(text: String) {
+        if (speaking && PlatformMedia.speaking()) {
+            PlatformMedia.stopSpeaking()
+            speaking = false
+            return
+        }
+        speaking = text.isNotBlank() && PlatformMedia.speak(text)
+    }
 }
 
 @Composable

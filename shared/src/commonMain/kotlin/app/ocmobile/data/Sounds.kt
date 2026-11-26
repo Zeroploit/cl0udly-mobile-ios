@@ -1,6 +1,7 @@
 package app.ocmobile.data
 
 import app.ocmobile.Graph
+import app.ocmobile.platform.PlatformMedia
 import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.sin
@@ -10,8 +11,8 @@ import kotlin.math.sin
  * glass being touched. The same notes play in cl0udly on the computer.
  *
  * Ported from the Android `Sounds.kt`. The synthesis is plain math and stays identical; playback
- * needs a platform audio track, which commonMain has no API for, so [play] is a no-op until the
- * iOS audio host is wired up. Callers are unchanged, so sound starts working the moment that lands.
+ * goes through [PlatformMedia.playPcm], which wraps the samples in a WAV header on iOS. Callers are
+ * unchanged.
  */
 object Sounds {
     enum class S { Send, Done, Error, Pop, Pet, Tap }
@@ -55,7 +56,6 @@ object Sounds {
         val now = app.ocmobile.platform.nowMillis()
         if (now - last < 60) return
         last = now
-        // No audio track in commonMain yet: the notes are synthesised above, playback waits for the
-        // iOS audio host. Nothing else changes for the callers.
+        PlatformMedia.playPcm(cache.getOrPut(s) { pcm(s) }, RATE)
     }
 }

@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ocmobile.Graph
 import app.ocmobile.platform.nowMillis
+import app.ocmobile.platform.speechEngine
 import app.ocmobile.ui.theme.Ic
 import app.ocmobile.ui.theme.Oc
 import kotlinx.coroutines.delay
@@ -38,8 +39,8 @@ import kotlinx.coroutines.delay
  * the text appears as you speak. The recognizer stops by itself after a pause, so we restart it
  * until the user taps "done" or "send".
  *
- * This platform has no speech engine: the recording bar, the wave and the controls are all here,
- * but nothing is recognized — [start] opens the bar and [text] stays empty.
+ * The recognizer is the platform's ([speechEngine]): SFSpeechRecognizer on iOS; the desktop preview
+ * has none, so [start] opens the bar and [text] stays empty there.
  */
 class Dictation() {
     var active by mutableStateOf(false)
@@ -53,6 +54,7 @@ class Dictation() {
     var startedAt by mutableLongStateOf(0L)
         private set
     private var lastPush = 0L
+    private val engine get() = speechEngine()
 
     val text get() = listOf(done, partial).filter { it.isNotBlank() }.joinToString(" ")
 
@@ -60,13 +62,34 @@ class Dictation() {
         if (active) return
         done = ""; partial = ""; active = true; startedAt = nowMillis()
         for (i in levels.indices) levels[i] = 0f
-        // no recognizer to create here: the bar runs, but no text or level ever arrives
+        listen()
+    }
+
+    /** One recognizer session: a chunk settles, it is kept, and listening starts again. */
+    private fun listen() {
+        engine?.start(
+            langTag = speechTag(),
+            onPartial = { t -> if (active) partial = t },
+            onFinal = { t ->
+                if (t.isNotBlank()) done = listOf(done, t).filter { it.isNotBlank() }.joinToString(" ")
+                partial = ""
+                if (active) listen()
+            },
+            onLevel = { v -> if (active) push(v) },
+            onError = { reason ->
+                if (active) {
+                    Graph.chats.toasts.tryEmit(reason)
+                    stop()
+                }
+            },
+        )
     }
 
     /** Russian ↔ English on the fly: what was said so far stays, the recognizer starts over in the other one. */
     fun switchLang() {
         Graph.prefs.speechLang = if (speechTag().startsWith("en")) "ru-RU" else "en-US"
         if (partial.isNotBlank()) { done = listOf(done, partial).filter { it.isNotBlank() }.joinToString(" "); partial = "" }
+        if (active) { engine?.stop(); listen() }
     }
 
     /** Stop and return everything recognized. */
@@ -74,6 +97,7 @@ class Dictation() {
 
     fun stop() {
         active = false
+        engine?.stop()
     }
 
     /** Level push from the recognizer's loudness, kept for the real engine that may come back. */
@@ -94,7 +118,7 @@ private fun speechTag(): String = Graph.prefs.speechLang.ifBlank { "en-US" }
 fun rememberDictation(): Pair<Dictation, () -> Unit> {
     val d = remember { Dictation() }
     DisposableEffect(Unit) { onDispose { d.stop() } }
-    // no RECORD_AUDIO permission flow here: there is nothing to record with, so starting is direct
+    // the platform asks for the microphone and speech permission on the first start
     return d to { d.start() }
 }
 

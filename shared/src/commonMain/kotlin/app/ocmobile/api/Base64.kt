@@ -12,6 +12,11 @@ private const val BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq
  */
 internal fun base64(input: String): String {
     val bytes = input.encodeToByteArray()
+    return base64Bytes(bytes)
+}
+
+/** The same encoder for raw bytes (an image from the camera or the photo picker). */
+internal fun base64Bytes(bytes: ByteArray): String {
     val out = StringBuilder((bytes.size + 2) / 3 * 4)
     var i = 0
     while (i < bytes.size) {

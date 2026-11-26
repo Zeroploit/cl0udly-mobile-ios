@@ -3,6 +3,7 @@ package app.ocmobile.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -23,15 +24,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -40,7 +45,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -54,11 +61,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.ocmobile.api.str
+import app.ocmobile.platform.PlatformMedia
 import app.ocmobile.platform.rememberMotionEnabled
 import app.ocmobile.ui.theme.Ic
 import app.ocmobile.ui.theme.Oc
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -186,9 +195,8 @@ fun FileViewerHost() {
                     loaded?.let { Txt(typeLabel(it) + "  " + OutFiles.human(it.size), size = 12.sp, color = if (dark) Color.White.copy(alpha = 0.6f) else c.textDim, maxLines = 1) }
                 }
                 if (loaded != null) {
-                    // the system share sheet and a save-to-Files target are platform calls; the buttons keep their place
-                    IconBtn(Ic.Share, { }, tint = tint, iconSize = 21.dp)
-                    IconBtn(Ic.Download, { }, tint = tint, iconSize = 21.dp)
+                    IconBtn(Ic.Share, { PlatformMedia.shareFile(loaded.bytes, loaded.name, loaded.mime) }, tint = tint, iconSize = 21.dp)
+                    IconBtn(Ic.Download, { PlatformMedia.saveFile(loaded.bytes, loaded.name, loaded.mime) }, tint = tint, iconSize = 21.dp)
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -215,9 +223,9 @@ private fun typeLabel(l: Loaded) = when (l.kind) {
 private fun Body(l: Loaded) {
     when (l.kind) {
         Kind.Image -> ZoomImage(l.bytes, l.name)
-        Kind.Pdf -> CannotShow("This PDF can't be opened here.", l.name, "PDF")
-        Kind.Video -> CannotShow("This video can't play here.", l.name, "Video")
-        Kind.Audio -> CannotShow("This audio can't play here.", l.name, "Audio")
+        Kind.Pdf -> PlatformPdfView(l.bytes, l.name, Modifier.fillMaxSize())
+        Kind.Video -> PlatformVideoView(l.bytes, l.mime, Modifier.fillMaxSize())
+        Kind.Audio -> Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) { AudioCard(l) }
         Kind.Markdown -> Rendered(l) { text ->
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp).navigationBarsPadding()) { SelectionContainer { Markdown(text) } }
         }
@@ -284,6 +292,64 @@ private fun CannotShow(message: String, name: String, label: String) {
         Spacer(Modifier.height(4.dp))
         Txt(message, size = 14.sp, color = c.textDim, align = TextAlign.Center)
     }
+}
+
+/**
+ * The audio card the Android viewer shows: play/pause, a track that seeks on tap, and the
+ * elapsed/total time. Playback is [AudioHost], so a new file stops the previous one.
+ */
+@Composable
+private fun AudioCard(l: Loaded) {
+    val c = Oc.c
+    val track = l.name
+    val active = AudioHost.name == track
+    val playing = active && AudioHost.playing
+    var progress by remember { mutableFloatStateOf(0f) }
+    var dur by remember(track) { mutableLongStateOf(0L) }
+    LaunchedEffect(active) { if (active) dur = AudioHost.durationMs() }
+    LaunchedEffect(playing) {
+        while (playing) {
+            val total = AudioHost.durationMs()
+            if (total > 0) progress = AudioHost.positionMs().toFloat() / total
+            delay(120)
+        }
+    }
+    DisposableEffect(track) { onDispose { if (AudioHost.name == track) AudioHost.stop() } }
+    Box(Modifier.widthIn(max = 420.dp).fillMaxWidth().clip(Oc.round(18.dp)).background(c.surface).border(1.dp, c.border, Oc.round(18.dp))) {
+        Row(Modifier.padding(start = 10.dp, end = 4.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(44.dp).clip(CircleShape).background(c.text).tap(onClick = { AudioHost.toggle(track, { l.bytes }, l.mime) }), contentAlignment = Alignment.Center) {
+                Ico(if (playing) Ic.Pause else Ic.Play, tint = c.bg, size = 20.dp)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Txt(l.name, size = 15.sp, weight = FontWeight.Medium, maxLines = 1)
+                Spacer(Modifier.height(6.dp))
+                Canvas(Modifier.fillMaxWidth().height(18.dp).pointerInput(track) {
+                    detectTapGestures { o: Offset ->
+                        val k = (o.x / size.width).coerceIn(0f, 1f)
+                        if (AudioHost.name != track) AudioHost.toggle(track, { l.bytes }, l.mime)
+                        AudioHost.seekTo(k); progress = k
+                    }
+                }) {
+                    val y = size.height / 2
+                    drawRoundRect(c.border, Offset(0f, y - 2.dp.toPx()), Size(size.width, 4.dp.toPx()), CornerRadius(2.dp.toPx()))
+                    drawRoundRect(c.text, Offset(0f, y - 2.dp.toPx()), Size(size.width * (if (active) progress else 0f), 4.dp.toPx()), CornerRadius(2.dp.toPx()))
+                }
+                Txt(
+                    (if (active && dur > 0) time((progress * dur).toLong()) + " / " else "") +
+                        (if (dur > 0) time(dur) else extOf(l.name).uppercase()) + " · " + OutFiles.human(l.size),
+                    size = 12.sp, color = c.textDim,
+                )
+            }
+            IconBtn(Ic.Download, { PlatformMedia.saveFile(l.bytes, l.name, l.mime) }, size = 38.dp, iconSize = 19.dp, tint = c.textDim)
+            IconBtn(Ic.Share, { PlatformMedia.shareFile(l.bytes, l.name, l.mime) }, size = 38.dp, iconSize = 19.dp, tint = c.textDim)
+        }
+    }
+}
+
+private fun time(ms: Long): String {
+    val s = (ms / 1000).toInt()
+    return "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
 }
 
 /** Any text or code: numbered lines, wrapped, selectable; a button copies all of it. */

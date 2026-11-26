@@ -59,13 +59,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ocmobile.Graph
+import app.ocmobile.api.base64Bytes
 import app.ocmobile.data.LocalFile
+import app.ocmobile.platform.PickedFile
+import app.ocmobile.platform.PlatformMedia
 import app.ocmobile.ui.Nav
 import app.ocmobile.ui.Route
 import app.ocmobile.ui.theme.Ic
 import app.ocmobile.ui.theme.Oc
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
+
+/** A picker result becomes the same `data:` URL the composer sends and the chips preview. */
+private fun addAttachment(state: ComposerState, file: PickedFile) {
+    val mime = file.mime.ifBlank { "application/octet-stream" }
+    state.attachments.add(LocalFile(mime, file.name, "data:$mime;base64," + base64Bytes(file.bytes)))
+}
 
 class ComposerState {
     /** Text together with the cursor: the "/" menu opens where the cursor is, not only at the start. */
@@ -362,9 +371,18 @@ fun ComposerHost(
             onDismiss = { state.showAdd = false },
             sessionId = sessionId,
             nav = nav,
-            onCamera = { Graph.chats.toasts.tryEmit("The camera is not available on this device") },
-            onPhotos = { Graph.chats.toasts.tryEmit("Picking photos is not available on this device") },
-            onFiles = { Graph.chats.toasts.tryEmit("Picking files is not available on this device") },
+            onCamera = {
+                state.showAdd = false
+                PlatformMedia.takePhoto { file -> file?.let { addAttachment(state, it) } }
+            },
+            onPhotos = {
+                state.showAdd = false
+                PlatformMedia.pickImages(multi = true) { files -> files.forEach { addAttachment(state, it) } }
+            },
+            onFiles = {
+                state.showAdd = false
+                PlatformMedia.pickFiles { files -> files.forEach { addAttachment(state, it) } }
+            },
             onVoice = onVoice,
         )
     } else if (state.showAdd) {
@@ -373,10 +391,17 @@ fun ComposerHost(
             sessionId = sessionId,
             nav = nav,
             onCamera = {
-                Graph.chats.toasts.tryEmit("The camera is not available on this device")
+                state.showAdd = false
+                PlatformMedia.takePhoto { file -> file?.let { addAttachment(state, it) } }
             },
-            onPhotos = { state.showAdd = false; Graph.chats.toasts.tryEmit("Picking photos is not available on this device") },
-            onFiles = { state.showAdd = false; Graph.chats.toasts.tryEmit("Picking files is not available on this device") },
+            onPhotos = {
+                state.showAdd = false
+                PlatformMedia.pickImages(multi = true) { files -> files.forEach { addAttachment(state, it) } }
+            },
+            onFiles = {
+                state.showAdd = false
+                PlatformMedia.pickFiles { files -> files.forEach { addAttachment(state, it) } }
+            },
             onVoice = onVoice,
         )
     }

@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.ocmobile.Graph
 import app.ocmobile.data.CHAT_DIR
+import app.ocmobile.platform.PlatformMedia
+import app.ocmobile.platform.speechEngine
 import app.ocmobile.ui.components.Ico
 import app.ocmobile.ui.components.Txt
 import app.ocmobile.ui.components.tap
@@ -67,8 +70,8 @@ private enum class Talk { Idle, Listening, Thinking, Speaking }
  * wait for the agent's reply and read it aloud, then listen again.
  * [sessionId] = null: a new chat is created with the first phrase; [onClose] gets the chat id if one appeared.
  *
- * Common code has no speech recognition or text-to-speech yet, so listening and speaking are
- * quiet no-ops: the ring, the state machine and all the controls stay as they are.
+ * Listening is the platform recognizer ([speechEngine]) and the voice is [PlatformMedia.speak];
+ * on the desktop preview both are quiet no-ops, so the ring and the state machine still run.
  */
 @Composable
 fun VoiceMode(sessionId: String?, forceCloud: Boolean = false, onClose: (String?) -> Unit) {
@@ -80,16 +83,36 @@ fun VoiceMode(sessionId: String?, forceCloud: Boolean = false, onClose: (String?
     var speaker by remember { mutableStateOf(true) }
     var caption by remember { mutableStateOf("") }
     var level by remember { mutableFloatStateOf(0f) }
+    val engine = remember { speechEngine() }
+    // the dialog closing has to silence the voice from the old composition, so the flag lives in remember
+    val closed = remember { mutableStateOf(false) }
+    // speak() has to come back to listen(), and listen() to ask() to speak(): the var breaks the cycle
+    var listenNext by remember { mutableStateOf<() -> Unit>({}) }
     // in the cloud look the conversation is with the mascot: it sits in the ring and speaks a little higher
     val cloud = Oc.look.id == "cloud" || forceCloud
 
-    var listenNext by remember { mutableStateOf<() -> Unit>({}) }
+    DisposableEffect(Unit) {
+        onDispose {
+            closed.value = true
+            engine?.stop()
+            PlatformMedia.stopSpeaking()
+        }
+    }
 
     fun speak(text: String) {
-        // no platform voice here: settle back and listen again when one lands
-        if (!speaker || text.isBlank()) { talk = Talk.Idle; listenNext(); return }
-        talk = Talk.Idle
-        listenNext()
+        // the ring drops markdown that a voice would read as noise, like the Android copy
+        val clean = text.replace(Regex("```[\\s\\S]*?```"), " code omitted. ")
+            .replace(Regex("[`*#>_|\\[\\]]"), "")
+            .replace(Regex("\\((/|https?://)[^)]*\\)"), "")
+            .take(2500)
+        if (!speaker || clean.isBlank()) { talk = Talk.Idle; listenNext(); return }
+        talk = Talk.Speaking
+        if (!PlatformMedia.speak(clean)) { talk = Talk.Idle; listenNext(); return }
+        // the platform voice has no completion callback: poll until it stops talking
+        scope.launch {
+            while (PlatformMedia.speaking()) delay(120)
+            if (!closed.value && talk == Talk.Speaking) { talk = Talk.Idle; listenNext() }
+        }
     }
 
     /** Send a phrase and wait for the agent's reply. */
@@ -119,13 +142,27 @@ fun VoiceMode(sessionId: String?, forceCloud: Boolean = false, onClose: (String?
     }
 
     fun listen() {
-        // no speech recognition on this platform: the button stays, listening is a no-op
-        if (muted) { talk = Talk.Idle; return }
-        talk = Talk.Listening; caption = ""
+        if (closed.value || muted) { talk = Talk.Idle; return }
+        if (talk == Talk.Listening) return
+        talk = Talk.Listening; caption = ""; level = 0f
+        engine?.start(
+            langTag = Graph.prefs.speechLang.ifBlank { "en-US" },
+            onPartial = { t -> if (talk == Talk.Listening) caption = t },
+            onFinal = { t ->
+                if (talk == Talk.Listening) {
+                    engine?.stop()
+                    if (t.isNotBlank()) ask(t) else { talk = Talk.Idle; listen() }
+                }
+            },
+            onLevel = { v -> if (talk == Talk.Listening) level = v },
+            onError = { reason ->
+                if (talk == Talk.Listening) { caption = reason; talk = Talk.Idle }
+            },
+        )
     }
     listenNext = { listen() }
 
-    fun close() { onClose(session) }
+    fun close() { closed.value = true; engine?.stop(); PlatformMedia.stopSpeaking(); onClose(session) }
 
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().screenBackdrop("VoiceMode1")) {
@@ -134,7 +171,7 @@ fun VoiceMode(sessionId: String?, forceCloud: Boolean = false, onClose: (String?
                 Box(Modifier.size(260.dp), contentAlignment = Alignment.Center) {
                     VoiceRing(talk, level, Modifier.fillMaxSize().tap(scale = 0.97f) {
                         when (talk) {
-                            Talk.Speaking -> { talk = Talk.Idle; listen() } // interrupt, like in Claude
+                            Talk.Speaking -> { PlatformMedia.stopSpeaking(); talk = Talk.Idle; listen() } // interrupt, like in Claude
                             Talk.Idle -> listen()
                             Talk.Listening -> {}
                             Talk.Thinking -> {}
@@ -170,7 +207,7 @@ fun VoiceMode(sessionId: String?, forceCloud: Boolean = false, onClose: (String?
                     Box(
                         Modifier.size(64.dp).clip(CircleShape).background(if (muted) c.danger.copy(alpha = .18f) else c.surfaceHigh).tap {
                             muted = !muted
-                            if (muted) { if (talk == Talk.Listening) talk = Talk.Idle } else if (talk == Talk.Idle) listen()
+                            if (muted) { if (talk == Talk.Listening) { engine?.stop(); talk = Talk.Idle } } else if (talk == Talk.Idle) listen()
                         },
                         contentAlignment = Alignment.Center,
                     ) { Ico(if (muted) Ic.MicOff else Ic.Mic, tint = if (muted) c.danger else c.text, size = 26.dp) }
