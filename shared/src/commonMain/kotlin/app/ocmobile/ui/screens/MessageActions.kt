@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ocmobile.api.str
 import app.ocmobile.data.ChatMessage
+import app.ocmobile.platform.PlatformMedia
 import app.ocmobile.ui.components.FloatItem
 import app.ocmobile.ui.components.FloatMenu
 import app.ocmobile.ui.components.OcSheet
@@ -51,11 +52,7 @@ fun MessageActionsSheet(
         onEdit?.let { add(FloatItem("Edit", Ic.Edit, act = it)) }
         onRetry?.let { add(FloatItem("Retry", Ic.Refresh, act = it)) }
         add(FloatItem("Fork from here", Ic.Branch, act = onFork))
-        if (text.isNotBlank()) add(FloatItem("Share", Ic.Share) {
-            // Android opened the system share sheet (Intent.ACTION_SEND); a client has no
-            // share sheet of its own yet, so the item stays and copies instead
-            clip.setText(AnnotatedString(text)); app.ocmobile.ui.components.copiedNote()
-        })
+        if (text.isNotBlank()) add(FloatItem("Share", Ic.Share) { PlatformMedia.shareText(text) })
         add(FloatItem("Delete message", Ic.Trash, danger = true, act = onDelete))
     }
     FloatMenu(onDismiss, items, header)

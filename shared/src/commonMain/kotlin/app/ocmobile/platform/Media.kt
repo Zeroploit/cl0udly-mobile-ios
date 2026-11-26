@@ -22,6 +22,9 @@ expect object PlatformMedia {
     /** The system share sheet for a text (a link, a copied answer). */
     fun shareText(text: String)
 
+    /** Open a link outside the app: Safari, or whatever app claims the scheme. */
+    fun openUrl(url: String)
+
     /** The photo library picker; [multi] allows more than one photo. Returns empty on cancel. */
     fun pickImages(multi: Boolean, onPicked: (List<PickedFile>) -> Unit)
 

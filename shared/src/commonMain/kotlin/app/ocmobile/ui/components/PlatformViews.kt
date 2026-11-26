@@ -18,6 +18,10 @@ expect fun PlatformPdfView(bytes: ByteArray, name: String, modifier: Modifier)
 @Composable
 expect fun PlatformVideoView(bytes: ByteArray, mime: String, modifier: Modifier)
 
+/** A web page or SVG: a browser widget (WKWebView / WebView); the stubs render nothing. */
+@Composable
+expect fun PlatformHtmlView(bytes: ByteArray, name: String, modifier: Modifier)
+
 /**
  * The audio behind [AudioCard]: one engine for the whole app, a new track stops the previous one.
  * The card keeps its Android look; only the playback is a platform call.

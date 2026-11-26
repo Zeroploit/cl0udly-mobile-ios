@@ -27,7 +27,7 @@ private class IosAudioEngine : AudioEngine {
         release()
         val session = AVAudioSession.sharedInstance()
         session.setCategory(AVAudioSessionCategoryPlayback, error = null)
-        session.setActive(true, null)
+        session.setActive(true, error = null)
         val clip = runCatching { AVAudioPlayer(data = bytes.toNSData(), error = null) }.getOrNull() ?: return false
         clip.prepareToPlay()
         player = clip

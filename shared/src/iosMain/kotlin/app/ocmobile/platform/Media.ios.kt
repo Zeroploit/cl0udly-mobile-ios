@@ -15,13 +15,13 @@ import platform.Foundation.NSData
 import platform.Foundation.NSLocale
 import platform.Foundation.NSURL
 import platform.Foundation.dataWithContentsOfURL
-import platform.Foundation.preferredLanguages
 import platform.PhotosUI.PHPickerConfiguration
 import platform.PhotosUI.PHPickerFilter
 import platform.PhotosUI.PHPickerResult
 import platform.PhotosUI.PHPickerViewController
 import platform.PhotosUI.PHPickerViewControllerDelegateProtocol
 import platform.UIKit.UIActivityViewController
+import platform.UIKit.UIApplication
 import platform.UIKit.UIImage
 import platform.UIKit.UIImageJPEGRepresentation
 import platform.UIKit.UIImagePickerController
@@ -61,6 +61,11 @@ actual object PlatformMedia {
         presentItems(listOf(text))
     }
 
+    actual fun openUrl(url: String) {
+        val target = NSURL.URLWithString(url) ?: return
+        UIApplication.sharedApplication.openURL(target, options = emptyMap<Any?, Any>(), completionHandler = null)
+    }
+
     private fun presentItems(items: List<Any>) {
         val host = topViewController() ?: return
         val sheet = UIActivityViewController(activityItems = items, applicationActivities = null)
@@ -75,7 +80,7 @@ actual object PlatformMedia {
         if (activePickerDelegate != null) return
         val host = topViewController() ?: return onPicked(emptyList())
         val configuration = PHPickerConfiguration().apply {
-            selectionLimit = if (multi) 0L else 1L
+            selectionLimit = if (multi) 10L else 1L
             filter = PHPickerFilter.imagesFilter
         }
         val picker = PHPickerViewController(configuration = configuration)
@@ -123,7 +128,7 @@ actual object PlatformMedia {
         if (text.isBlank()) return false
         val session = AVAudioSession.sharedInstance()
         session.setCategory(AVAudioSessionCategoryPlayback, error = null)
-        session.setActive(true, null)
+        session.setActive(true, error = null)
         if (synthesizer.speaking) synthesizer.stopSpeakingAtBoundary(AVSpeechBoundary.AVSpeechBoundaryImmediate)
         val utterance = AVSpeechUtterance.speechUtteranceWithString(text)
         val preferred = NSLocale.preferredLanguages.firstOrNull() as? String

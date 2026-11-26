@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ocmobile.Graph
 import app.ocmobile.api.base64
+import app.ocmobile.platform.PlatformMedia
 import app.ocmobile.ui.theme.Ic
 import app.ocmobile.ui.theme.Oc
 import app.ocmobile.ui.theme.OcColors
@@ -117,14 +118,19 @@ private fun CodeMore(code: String, lang: String, file: String?) {
                     Modifier.fillMaxWidth().tap(scale = 1f) { open = false; act() }.padding(horizontal = 18.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) { Ico(icon, tint = c.text, size = 20.dp); Spacer(Modifier.width(16.dp)); Txt(label, size = 16.sp) }
-                // Android saved with ActivityResultContracts.CreateDocument and shared with an Intent; both are
-                // Android-only APIs, so the two actions are stubbed here until a platform saver/share exists.
-                item(Ic.Download, "Save as file") { /* stub: no file saver in the shared UI yet */ }
+                // Save goes through the system sheet (on iOS "Save to Files"); share opens the same sheet.
+                item(Ic.Download, "Save as file") {
+                    val mime = when (ext) {
+                        "html", "htm" -> "text/html"; "svg" -> "image/svg+xml"; "md" -> "text/markdown"
+                        "json" -> "application/json"; else -> "text/plain"
+                    }
+                    PlatformMedia.saveFile(code.encodeToByteArray(), "code.$ext", mime)
+                }
                 if (web) item(Ic.Eye, "Open in preview") {
                     val b64 = base64(code)
                     Graph.chats.openRequest.value = "route:preview:data:" + (if (ext == "svg") "image/svg+xml" else "text/html") + ";base64," + b64
                 }
-                item(Ic.Share, "Share") { /* stub: no share sheet in the shared UI yet */ }
+                item(Ic.Share, "Share") { PlatformMedia.shareText(code) }
             }
         }
     }

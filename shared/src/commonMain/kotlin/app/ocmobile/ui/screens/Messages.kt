@@ -310,9 +310,7 @@ fun AssistantBlock(m: ChatMessage, last: Boolean, onImage: (String) -> Unit, onL
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (textAll.isNotBlank()) {
                     CopyButton(textAll, size = 40.dp, iconSize = 20.dp)
-                    // Android shared the text with the system share sheet; a client has no share
-                    // sheet of its own yet, so the button stays and copies instead
-                    IconBtn(Ic.Share, { clip.setText(AnnotatedString(textAll)) }, size = 40.dp, iconSize = 20.dp, tint = c.textDim)
+                    IconBtn(Ic.Share, { PlatformMedia.shareText(textAll) }, size = 40.dp, iconSize = 20.dp, tint = c.textDim)
                     IconBtn(Ic.Volume, { Speaker.toggle(textAll) }, size = 40.dp, iconSize = 20.dp, tint = c.textDim)
                 }
                 if (onRetry != null) IconBtn(Ic.Refresh, onRetry, size = 40.dp, iconSize = 20.dp, tint = c.textDim)

@@ -13,3 +13,6 @@ actual fun PlatformPdfView(bytes: ByteArray, name: String, modifier: Modifier) {
 
 @Composable
 actual fun PlatformVideoView(bytes: ByteArray, mime: String, modifier: Modifier) { Box(modifier) }
+
+@Composable
+actual fun PlatformHtmlView(bytes: ByteArray, name: String, modifier: Modifier) { Box(modifier) }

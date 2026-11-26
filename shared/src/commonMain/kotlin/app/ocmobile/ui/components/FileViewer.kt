@@ -229,7 +229,7 @@ private fun Body(l: Loaded) {
         Kind.Markdown -> Rendered(l) { text ->
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp).navigationBarsPadding()) { SelectionContainer { Markdown(text) } }
         }
-        Kind.Html -> Rendered(l) { HtmlNote(l.name) }
+        Kind.Html -> Rendered(l) { PlatformHtmlView(l.bytes, l.name, Modifier.fillMaxSize()) }
         Kind.Csv -> CsvTable(l.name, readText(l))
         Kind.Text -> TextLines(readText(l))
         Kind.Other -> {
@@ -265,32 +265,6 @@ private fun Rendered(l: Loaded, view: @Composable (String) -> Unit) {
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) { if (source) TextLines(text) else view(text) }
-    }
-}
-
-/** Web pages need a browser widget: the note takes the place the rendered page has on Android. */
-@Composable
-private fun HtmlNote(name: String) {
-    val c = Oc.c
-    Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Txt(name, size = 18.sp, weight = FontWeight.Medium, align = TextAlign.Center)
-        Spacer(Modifier.height(8.dp))
-        Txt("The page can't be shown in the app yet: its source is under Source.", size = 14.sp, color = c.textDim, align = TextAlign.Center)
-    }
-}
-
-/** A kind that needs a player or a renderer the shared code doesn't have yet. */
-@Composable
-private fun CannotShow(message: String, name: String, label: String) {
-    val c = Oc.c
-    Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(84.dp).clip(Oc.round(22.dp)).background(c.surfaceHigh), contentAlignment = Alignment.Center) {
-            Ico(if (label == "PDF") Ic.File else Ic.Play, tint = c.textDim, size = 38.dp)
-        }
-        Spacer(Modifier.height(16.dp))
-        Txt(name, size = 18.sp, weight = FontWeight.Medium, align = TextAlign.Center)
-        Spacer(Modifier.height(4.dp))
-        Txt(message, size = 14.sp, color = c.textDim, align = TextAlign.Center)
     }
 }
 

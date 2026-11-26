@@ -13,16 +13,20 @@ import app.ocmobile.platform.writeTemp
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.AVFoundation.AVPlayer
 import platform.AVKit.AVPlayerViewController
+import platform.CoreGraphics.CGRectZero
 import platform.Foundation.NSURL
 import platform.PDFKit.PDFDocument
 import platform.PDFKit.PDFView
 import platform.UIKit.UIView
 import platform.UIKit.UIViewAutoresizingFlexibleHeight
 import platform.UIKit.UIViewAutoresizingFlexibleWidth
+import platform.WebKit.WKWebView
+import platform.WebKit.WKWebViewConfiguration
 
 /**
- * iOS surfaces for the two kinds of file the shared code cannot draw: PDFKit pages and an
- * AVPlayerViewController. Both keep the frame the viewer reserved; only the content is native.
+ * iOS surfaces for the kinds of file the shared code cannot draw itself: PDFKit pages, an
+ * AVPlayerViewController and a WKWebView. Each keeps the frame the viewer reserved; only the
+ * content is native.
  */
 
 @Composable
@@ -60,6 +64,23 @@ actual fun PlatformVideoView(bytes: ByteArray, mime: String, modifier: Modifier)
         factory = { holder.container },
         modifier = modifier,
         update = { holder.player.play() },
+    )
+}
+
+/**
+ * A web page or SVG: WKWebView loading the bytes directly. Scripts are on, as in Android's WebView
+ * settings for these previews; the content came from the user's own agent.
+ */
+@Composable
+actual fun PlatformHtmlView(bytes: ByteArray, name: String, modifier: Modifier) {
+    val data = remember(bytes) { bytes.toNSData() }
+    UIKitView(
+        factory = {
+            WKWebView(frame = CGRectZero, configuration = WKWebViewConfiguration()).apply {
+                loadData(data, "text/html", "UTF-8", null)
+            }
+        },
+        modifier = modifier,
     )
 }
 

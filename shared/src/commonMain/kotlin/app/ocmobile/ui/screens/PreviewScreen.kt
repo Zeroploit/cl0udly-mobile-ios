@@ -33,11 +33,16 @@ import androidx.compose.ui.unit.sp
 import app.ocmobile.Graph
 import app.ocmobile.api.obj
 import app.ocmobile.api.str
+import app.ocmobile.platform.PlatformMedia
 import app.ocmobile.ui.Nav
+import app.ocmobile.ui.components.BrowserCommands
+import app.ocmobile.ui.components.BrowserState
 import app.ocmobile.ui.components.IconBtn
 import app.ocmobile.ui.components.Pill
+import app.ocmobile.ui.components.PlatformBrowser
 import app.ocmobile.ui.components.TopBar
 import app.ocmobile.ui.components.Txt
+import app.ocmobile.ui.components.platformBrowser
 import app.ocmobile.ui.theme.Ic
 import app.ocmobile.ui.theme.Oc
 import kotlinx.coroutines.FlowPreview
@@ -80,7 +85,8 @@ private class UrlParts(u: String) {
  * - any web page from a chat link, like Claude's in-app browser: you browse inside, back goes back a page.
  * The side menu can't be pulled out here (Root turns its swipe off), so scrolling the page is never taken over.
  *
- * Common code has no WebView yet, so the page area is a quiet placeholder; the frame
+ * The page is a platform widget ([PlatformBrowser]): WKWebView on iOS. Where the platform has none
+ * (the desktop preview), the page area keeps a quiet placeholder and the frame
  * (top bar, loading line, browsing bar, "Live" row) is exactly as on Android.
  */
 @OptIn(FlowPreview::class, ExperimentalComposeUiApi::class)
@@ -94,31 +100,40 @@ fun PreviewScreen(url: String, sessionId: String?, nav: Nav) {
     // a page from the web (not the project's own server or file): browse freely, no "Live" bar
     val web0 = remember(url) { UrlParts(url) }
     val browsing = remember(url) { web0.host !in setOf("127.0.0.1", "localhost") }
-
+    val browser = remember(url) { BrowserState().apply { freeBrowsing = browsing } }
+    val commands = remember(url) { BrowserCommands() }
     // the agent edited a file: reload (with a pause, so a series of edits gives one reload)
     if (!browsing) LaunchedEffect(Unit) {
         Graph.events.events.filter { e ->
             e.type == "file.edited" || (e.type == "message.part.updated" && e.props.obj("part")?.let { p ->
                 p.str("tool") in setOf("edit", "write", "apply_patch", "patch", "multiedit") && p.obj("state")?.str("status") == "completed"
             } == true)
-        }.debounce(700).collect { reloads++ }
+        }.debounce(700).collect { reloads++; commands.reload++ }
     }
-    BackHandler(enabled = browsing) { }
+    BackHandler(enabled = browsing) { if (browser.canBack) commands.back++ else nav.pop() }
 
     Column(Modifier.fillMaxSize().screenBackdrop("PreviewScreen1")) {
         TopBar(title, left = { IconBtn(if (browsing) Ic.Close else Ic.Back, { nav.pop() }) }, right = {
-            IconBtn(Ic.Refresh, { failed = null })
-            IconBtn(Ic.External, { })
+            IconBtn(Ic.Refresh, { failed = null; browser.error = null; commands.reload++ })
+            IconBtn(Ic.External, { PlatformMedia.shareText(browser.currentUrl ?: url) })
         })
         // a thin line that fills as the page loads, then becomes the usual divider
-        Box(Modifier.fillMaxWidth().height(2.dp).background(c.border))
+        Box(Modifier.fillMaxWidth().height(2.dp).background(c.border)) {
+            if (browser.loading) Box(Modifier.fillMaxWidth((browser.progress.coerceIn(8, 100)) / 100f).height(2.dp).background(c.accent))
+        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            // no WebView in common code: the page opens in the system browser for now
-            Column(Modifier.fillMaxSize().screenBackdrop("PreviewScreen2").padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Txt(label(url), size = 20.sp)
-                Spacer(Modifier.height(8.dp))
-                Txt("The page opens outside the app for now.", size = 15.sp, color = c.textDim, lineHeight = 21.sp, align = TextAlign.Center)
-                Spacer(Modifier.height(18.dp))
+            if (platformBrowser) {
+                PlatformBrowser(url, browser, commands, Modifier.fillMaxSize())
+                LaunchedEffect(browser.title) { browser.title?.takeIf { it.isNotBlank() }?.let { title = it } }
+                LaunchedEffect(browser.error) { browser.error?.let { failed = it } }
+            } else {
+                // no WebView on this platform: the address, and nothing to draw
+                Column(Modifier.fillMaxSize().screenBackdrop("PreviewScreen2").padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Txt(label(url), size = 20.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Txt("The page opens outside the app for now.", size = 15.sp, color = c.textDim, lineHeight = 21.sp, align = TextAlign.Center)
+                    Spacer(Modifier.height(18.dp))
+                }
             }
             failed?.let { msg ->
                 Column(Modifier.fillMaxSize().screenBackdrop("PreviewScreen2").padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -126,15 +141,15 @@ fun PreviewScreen(url: String, sessionId: String?, nav: Nav) {
                     Spacer(Modifier.height(8.dp))
                     Txt(if (url.contains(":$PHONE_PORT/")) msg else "$msg\n\nIs the dev server still running? Ask OpenCode to start it again.", size = 15.sp, color = c.textDim, lineHeight = 21.sp, align = TextAlign.Center)
                     Spacer(Modifier.height(18.dp))
-                    Pill("Try again", { failed = null })
+                    Pill("Try again", { failed = null; browser.error = null; commands.reload++ })
                 }
             }
         }
         if (browsing) Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconBtn(Ic.Back, { }, tint = c.textDim.copy(alpha = 0.4f))
-            IconBtn(Ic.Back, { }, Modifier.graphicsLayer { rotationZ = 180f }, tint = c.textDim.copy(alpha = 0.4f))
-            Txt(UrlParts(url).host.removePrefix("www."), Modifier.weight(1f).padding(horizontal = 8.dp), size = 13.sp, color = c.textDim, maxLines = 1, align = TextAlign.Center)
-            IconBtn(Ic.Share, { }, iconSize = 21.dp)
+            IconBtn(Ic.Back, { commands.back++ }, tint = if (browser.canBack) c.text else c.textDim.copy(alpha = 0.4f))
+            IconBtn(Ic.Back, { commands.forward++ }, Modifier.graphicsLayer { rotationZ = 180f }, tint = if (browser.canForward) c.text else c.textDim.copy(alpha = 0.4f))
+            Txt(UrlParts(browser.currentUrl ?: url).host.removePrefix("www."), Modifier.weight(1f).padding(horizontal = 8.dp), size = 13.sp, color = c.textDim, maxLines = 1, align = TextAlign.Center)
+            IconBtn(Ic.Share, { PlatformMedia.shareText(browser.currentUrl ?: url) }, iconSize = 21.dp)
         }
         if (sessionId != null && !browsing) Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(if (reloads > 0) c.ok else c.textDim))
