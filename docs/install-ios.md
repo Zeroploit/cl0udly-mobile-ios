@@ -6,6 +6,10 @@ with an Apple identity before it can run.
 
 ## Which build to use
 
+The current build is `dist/cl0udly-22a72550.ipa` (17.6 MB, commit `6a418f6`).
+It carries every screen the Android app has; only the sections that need a
+server running on the phone itself are left out.
+
 Build with `"ios": { "configuration": "Release" }` in `builder.json` when the
 IPA is going to be signed by hand:
 
