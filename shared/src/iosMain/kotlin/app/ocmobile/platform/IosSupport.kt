@@ -10,7 +10,6 @@ import platform.Foundation.NSData
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSURL
 import platform.Foundation.dataWithBytes
-import platform.Foundation.fileURLWithPath
 import platform.Foundation.writeToFile
 import platform.UIKit.UIApplication
 import platform.UIKit.UIViewController
@@ -42,7 +41,8 @@ internal fun safeName(name: String): String {
 /** The temporary file the share sheet and the players read, written atomically. */
 internal fun writeTemp(bytes: ByteArray, name: String): NSURL? {
     val url = NSURL.fileURLWithPath(NSTemporaryDirectory() + safeName(name))
-    return if (bytes.toNSData().writeToFile(url.path!!, true)) url else null
+    val path = url.path ?: return null
+    return if (bytes.toNSData().writeToFile(path, true)) url else null
 }
 
 /** The controller on screen, past any sheet or alert already presented. */

@@ -8,18 +8,19 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.UIKitView
+import androidx.compose.ui.viewinterop.UIKitViewController
 import app.ocmobile.platform.toNSData
 import app.ocmobile.platform.writeTemp
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.readValue
 import platform.AVFoundation.AVPlayer
+import platform.AVFoundation.pause
+import platform.AVFoundation.play
 import platform.AVKit.AVPlayerViewController
 import platform.CoreGraphics.CGRectZero
 import platform.Foundation.NSURL
 import platform.PDFKit.PDFDocument
 import platform.PDFKit.PDFView
-import platform.UIKit.UIView
-import platform.UIKit.UIViewAutoresizingFlexibleHeight
-import platform.UIKit.UIViewAutoresizingFlexibleWidth
 import platform.WebKit.WKWebView
 import platform.WebKit.WKWebViewConfiguration
 
@@ -31,8 +32,9 @@ import platform.WebKit.WKWebViewConfiguration
 
 @Composable
 actual fun PlatformPdfView(bytes: ByteArray, name: String, modifier: Modifier) {
-    // PDFDocument(data:) is failable; a truncated or password-protected file returns null.
-    val document = remember(bytes) { runCatching { PDFDocument(bytes.toNSData()) }.getOrNull() }
+    // PDFDocument(data:) is typed non-null but PDFKit returns nil for a truncated or locked file,
+    // which arrives here as an exception: the frame simply stays empty.
+    val document = remember(bytes) { runCatching { PDFDocument(data = bytes.toNSData()) }.getOrNull() }
     if (document == null) {
         Box(modifier)
         return
@@ -45,9 +47,6 @@ actual fun PlatformPdfView(bytes: ByteArray, name: String, modifier: Modifier) {
             }
         },
         modifier = modifier,
-        update = { view ->
-            if (view.document !== document) view.setDocument(document)
-        },
     )
 }
 
@@ -58,49 +57,31 @@ actual fun PlatformVideoView(bytes: ByteArray, mime: String, modifier: Modifier)
         Box(modifier)
         return
     }
-    val holder = remember(url) { VideoHolder(url) }
-    DisposableEffect(holder) { onDispose { holder.release() } }
-    UIKitView(
-        factory = { holder.container },
-        modifier = modifier,
-        update = { holder.player.play() },
-    )
+    val controller = remember(url) {
+        AVPlayerViewController(nibName = null, bundle = null).apply {
+            player = AVPlayer(uRL = url)
+            showsPlaybackControls = true
+        }
+    }
+    DisposableEffect(controller) {
+        controller.player?.play()
+        onDispose { controller.player?.pause() }
+    }
+    UIKitViewController(factory = { controller }, modifier = modifier)
 }
 
-/**
- * A web page or SVG: WKWebView loading the bytes directly. Scripts are on, as in Android's WebView
- * settings for these previews; the content came from the user's own agent.
- */
+/** A web page or SVG: WKWebView loading the markup directly, as the Android viewer does. */
 @Composable
 actual fun PlatformHtmlView(bytes: ByteArray, name: String, modifier: Modifier) {
-    val data = remember(bytes) { bytes.toNSData() }
+    val html = remember(bytes) { bytes.decodeToString() }
     UIKitView(
         factory = {
-            WKWebView(frame = CGRectZero, configuration = WKWebViewConfiguration()).apply {
-                loadData(data, "text/html", "UTF-8", null)
+            WKWebView(frame = CGRectZero.readValue(), configuration = WKWebViewConfiguration()).apply {
+                loadHTMLString(html, null)
             }
         },
         modifier = modifier,
     )
-}
-
-/** The player and the controller that owns the playback controls, kept alive by the composition. */
-private class VideoHolder(url: NSURL) {
-    val player = AVPlayer(uRL = url)
-    private val controller = AVPlayerViewController().apply {
-        this.player = player
-        showsPlaybackControls = true
-    }
-    val container = UIView().apply {
-        val child = controller.view
-        child.frame = bounds
-        child.autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
-        addSubview(child)
-    }
-
-    fun release() {
-        player.pause()
-    }
 }
 
 private fun extensionFor(mime: String): String = when (mime.substringBefore(';').trim().lowercase()) {

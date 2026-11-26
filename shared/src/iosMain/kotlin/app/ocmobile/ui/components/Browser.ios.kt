@@ -9,18 +9,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.UIKitView
 import app.ocmobile.platform.PlatformMedia
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.ObjCSignatureOverride
 import kotlinx.cinterop.readValue
 import kotlinx.coroutines.delay
 import platform.CoreGraphics.CGRectZero
+import platform.Foundation.NSError
 import platform.Foundation.NSURLErrorCancelled
-import platform.Foundation.NSURLRequest
 import platform.Foundation.NSURL
+import platform.Foundation.NSURLRequest
 import platform.UIKit.UIScrollViewContentInsetAdjustmentBehavior
+import platform.WebKit.WKNavigation
 import platform.WebKit.WKNavigationAction
 import platform.WebKit.WKNavigationActionPolicy
 import platform.WebKit.WKNavigationDelegateProtocol
 import platform.WebKit.WKWebView
 import platform.WebKit.WKWebViewConfiguration
+import platform.WebKit.WKWebsiteDataStore
 import platform.darwin.NSObject
 
 /**
@@ -39,38 +43,39 @@ actual val platformBrowser: Boolean = true
 actual fun PlatformBrowser(url: String, state: BrowserState, commands: BrowserCommands, modifier: Modifier) {
     val delegate = remember(state) {
         object : NSObject(), WKNavigationDelegateProtocol {
-            override fun webView(webView: WKWebView, didStartProvisionalNavigation: platform.WebKit.WKNavigation?) {
+            // Four of these selectors collapse onto two Kotlin signatures: every one of the
+            // clashing declarations carries the annotation, as Kotlin/Native requires.
+            @ObjCSignatureOverride
+            override fun webView(webView: WKWebView, didStartProvisionalNavigation: WKNavigation?) {
                 state.loading = true
                 state.progress = 0
                 state.error = null
             }
 
-            override fun webView(webView: WKWebView, didFinishNavigation: platform.WebKit.WKNavigation?) {
+            @ObjCSignatureOverride
+            override fun webView(webView: WKWebView, didFinishNavigation: WKNavigation?) {
                 state.loading = false
                 state.progress = 100
                 state.title = webView.title
                 state.currentUrl = webView.URL?.absoluteString
             }
 
-            override fun webView(
-                webView: WKWebView,
-                didFailNavigation: platform.WebKit.WKNavigation?,
-                withError: platform.Foundation.NSError,
-            ) = failed(webView, withError)
+            @ObjCSignatureOverride
+            override fun webView(webView: WKWebView, didFailNavigation: WKNavigation?, withError: NSError) =
+                failed(withError)
 
-            override fun webView(
-                webView: WKWebView,
-                didFailProvisionalNavigation: platform.WebKit.WKNavigation?,
-                withError: platform.Foundation.NSError,
-            ) = failed(webView, withError)
+            @ObjCSignatureOverride
+            override fun webView(webView: WKWebView, didFailProvisionalNavigation: WKNavigation?, withError: NSError) =
+                failed(withError)
 
-            private fun failed(webView: WKWebView, error: platform.Foundation.NSError) {
+            private fun failed(error: NSError) {
                 // a navigation we cancelled on purpose is not a failure
                 if (error.code == NSURLErrorCancelled) return
                 state.loading = false
                 state.error = error.localizedDescription
             }
 
+            @ObjCSignatureOverride
             override fun webView(
                 webView: WKWebView,
                 decidePolicyForNavigationAction: WKNavigationAction,
@@ -99,8 +104,7 @@ actual fun PlatformBrowser(url: String, state: BrowserState, commands: BrowserCo
 
     val webView = remember {
         val configuration = WKWebViewConfiguration().apply {
-            preferences.javaScriptEnabled = true
-            websiteDataStore = platform.WebKit.WKWebsiteDataStore.defaultDataStore()
+            websiteDataStore = WKWebsiteDataStore.defaultDataStore()
         }
         WKWebView(frame = CGRectZero.readValue(), configuration = configuration).apply {
             navigationDelegate = delegate

@@ -7,12 +7,10 @@ import platform.AVFAudio.AVAudioPlayer
 import platform.AVFAudio.AVAudioSession
 import platform.AVFAudio.AVAudioSessionCategoryPlayback
 import platform.AVFAudio.AVSpeechBoundary
-import platform.AVFAudio.AVSpeechSynthesisVoice
 import platform.AVFAudio.AVSpeechSynthesizer
 import platform.AVFAudio.AVSpeechUtterance
 import platform.AVFAudio.setActive
 import platform.Foundation.NSData
-import platform.Foundation.NSLocale
 import platform.Foundation.NSURL
 import platform.Foundation.dataWithContentsOfURL
 import platform.PhotosUI.PHPickerConfiguration
@@ -69,10 +67,6 @@ actual object PlatformMedia {
     private fun presentItems(items: List<Any>) {
         val host = topViewController() ?: return
         val sheet = UIActivityViewController(activityItems = items, applicationActivities = null)
-        sheet.popoverPresentationController?.let { popover ->
-            popover.sourceView = host.view
-            popover.sourceRect = host.view.bounds
-        }
         host.presentViewController(sheet, animated = true, completion = null)
     }
 
@@ -131,8 +125,7 @@ actual object PlatformMedia {
         session.setActive(true, error = null)
         if (synthesizer.speaking) synthesizer.stopSpeakingAtBoundary(AVSpeechBoundary.AVSpeechBoundaryImmediate)
         val utterance = AVSpeechUtterance.speechUtteranceWithString(text)
-        val preferred = NSLocale.preferredLanguages.firstOrNull() as? String
-        if (preferred != null) utterance.voice = AVSpeechSynthesisVoice.voiceWithLanguage(preferred)
+        // the system voice speaks the device language, as Android's default TextToSpeech did
         synthesizer.speakUtterance(utterance)
         return true
     }

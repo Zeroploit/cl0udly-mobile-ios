@@ -22,6 +22,7 @@ import platform.AVFAudio.AVAudioSessionRecordPermissionGranted
 import platform.AVFAudio.setActive
 import platform.Foundation.NSError
 import platform.Foundation.NSLocale
+import platform.Foundation.localeIdentifier
 import platform.Speech.SFSpeechAudioBufferRecognitionRequest
 import platform.Speech.SFSpeechRecognitionTask
 import platform.Speech.SFSpeechRecognizer
@@ -53,7 +54,6 @@ private class IosSpeechEngine : SpeechEngine {
     private var session = 0
     private var silence: Job? = null
     private var heard = ""
-    private var onFinalRef: ((String) -> Unit)? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun start(
@@ -65,7 +65,6 @@ private class IosSpeechEngine : SpeechEngine {
     ) {
         stop()
         val id = ++session
-        onFinalRef = onFinal
         SFSpeechRecognizer.requestAuthorization { status ->
             onMain {
                 if (id != session) return@onMain
@@ -109,12 +108,15 @@ private class IosSpeechEngine : SpeechEngine {
         onError: (String) -> Unit,
     ) {
         // the device's recognizer must know the language: ask it which locales it has
-        val supported = SFSpeechRecognizer.supportedLocales().mapNotNull { (it as? NSLocale)?.localeIdentifier }
-        val locale = supported.firstOrNull { it.equals(langTag, ignoreCase = true) }
-            ?: supported.firstOrNull { it.startsWith(langTag.substringBefore('-') + "-") }
+        val supported = SFSpeechRecognizer.supportedLocales()
+            .mapNotNull { (it as? NSLocale)?.localeIdentifier }
+            .filter { it.isNotBlank() }
+        val base = langTag.substringBefore('-')
+        val tag = supported.firstOrNull { it.equals(langTag, ignoreCase = true) }
+            ?: supported.firstOrNull { it.startsWith("$base-") || it.startsWith("${base}_") }
             ?: langTag
-        val speech = SFSpeechRecognizer(locale = NSLocale(localeIdentifier = locale))
-        if (speech == null || !speech.available) {
+        val speech = SFSpeechRecognizer(locale = NSLocale(localeIdentifier = tag))
+        if (!speech.available) {
             onError("Speech recognition is not available")
             return
         }
