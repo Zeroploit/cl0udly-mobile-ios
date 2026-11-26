@@ -40,6 +40,7 @@ import app.ocmobile.data.Skills
 import app.ocmobile.data.Sounds
 import app.ocmobile.data.Team
 import app.ocmobile.platform.PlatformMedia
+import app.ocmobile.platform.PlatformVoice
 import app.ocmobile.platform.appVersion
 import app.ocmobile.platform.deviceLabel
 import app.ocmobile.runtime.RuntimeState
@@ -180,7 +181,7 @@ fun SettingsScreen(nav: Nav, onMenu: () -> Unit) {
                 SettingsRow("OpenCode", subtitle = serverText, icon = Ic.Terminal, onClick = { nav.push(Route.OcSettings) })
                 SettingsRow("Connectors", subtitle = "MCP servers", icon = Ic.Puzzle, onClick = { nav.push(Route.Connectors) })
                 SettingsRow("GitHub", subtitle = if (GitHub.signedIn) "@" + prefs.githubLogin else "Let OpenCode work with your repos", icon = Ic.GitHub, onClick = { nav.push(Route.GitHub) })
-                SettingsRow("Phone tools", subtitle = if (prefs.phoneTools) "OpenCode can act on this phone" else "Off", icon = Ic.Phone, onClick = { nav.push(Route.PhoneTools) })
+                SettingsRow("Phone tools", subtitle = if (prefs.phoneTools) "What the agent can do on this phone" else "Off", icon = Ic.Phone, onClick = { nav.push(Route.PhoneTools) })
                 SettingsRow("Permissions", subtitle = mapOf("ask" to "Ask", "edits" to "Auto-edit", "auto" to "Auto")[prefs.permissionMode], icon = Ic.Shield, onClick = { nav.push(Route.PermissionsCfg) })
             }
             Spacer(Modifier.height(16.dp))
@@ -390,15 +391,16 @@ private fun BugDialog(onDismiss: () -> Unit) {
 /**
  * The reading voice.
  *
- * Android listed the voices installed for the speech language. The shared layer has no access to
- * AVSpeechSynthesisVoice, so the list is not shown: the dialog keeps the choice that already exists
- * (the most natural one) and says how iOS picks the voice.
+ * Android listed the TextToSpeech voices installed for the speech language. iOS answers with the
+ * same idea over `AVSpeechSynthesisVoice`, grouped by language, the best voices first. Tapping one
+ * makes it the reading voice and speaks the sample with it.
  */
 @Composable
 private fun VoicePickerDialog(onDismiss: () -> Unit) {
     val c = Oc.c
     val prefs = Graph.prefs
     var picked by remember { mutableStateOf(prefs.ttsVoice) }
+    val voices = remember { runCatching { PlatformVoice.voices() }.getOrDefault(emptyList()) }
     val sample = if (prefs.speechLang.startsWith("ru")) "Привет! Так я буду читать ответы вслух." else "Hi! This is how I'll read replies aloud."
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -410,13 +412,31 @@ private fun VoicePickerDialog(onDismiss: () -> Unit) {
             ChoiceRow("The most natural one", picked.isBlank(), {
                 picked = ""
                 prefs.ttsVoice = ""
+                PlatformVoice.choose("")
                 PlatformMedia.speak(sample)
             })
-            Txt(
-                "iOS reads replies with the system voice for the speech language, the one picked in Settings → Accessibility → Spoken Content.",
-                Modifier.padding(horizontal = 24.dp, vertical = 10.dp), size = 14.sp, color = c.textDim, lineHeight = 20.sp,
-            )
-            // TODO(lead): voice picker over AVSpeechSynthesisVoice: needs an expect declaring the voices and a setter for the chosen one.
+            if (voices.isEmpty()) {
+                Txt(
+                    "iOS reads replies with the system voice for the speech language, the one picked in Settings → Accessibility → Spoken Content.",
+                    Modifier.padding(horizontal = 24.dp, vertical = 10.dp), size = 14.sp, color = c.textDim, lineHeight = 20.sp,
+                )
+            } else {
+                voices.groupBy { it.lang }.forEach { (lang, group) ->
+                    Txt(lang, Modifier.padding(start = 24.dp, top = 14.dp, bottom = 2.dp), size = 13.sp, color = c.textDim)
+                    group.forEach { voice ->
+                        ChoiceRow(voice.name, picked == voice.id, subtitle = when {
+                            voice.quality >= 3 -> "Natural"
+                            voice.quality == 2 -> "Clear"
+                            else -> "Basic"
+                        }, onClick = {
+                            picked = voice.id
+                            prefs.ttsVoice = voice.id
+                            PlatformVoice.choose(voice.id)
+                            PlatformMedia.speak(sample)
+                        })
+                    }
+                }
+            }
         }
     }
 }

@@ -6,7 +6,7 @@ with an Apple identity before it can run.
 
 ## Which build to use
 
-The current build is `dist/cl0udly-22a72550.ipa` (17.6 MB, commit `6a418f6`).
+The current build is `dist/cl0udly-f5f3fbca.ipa` (17.9 MB, commit `f5f3fbc`).
 It carries every screen the Android app has; only the sections that need a
 server running on the phone itself are left out.
 

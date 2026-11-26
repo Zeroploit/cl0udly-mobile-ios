@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import app.ocmobile.Graph
 import app.ocmobile.ui.Nav
 import app.ocmobile.ui.components.IconBtn
+import app.ocmobile.ui.components.Intro
 import app.ocmobile.ui.components.OcSwitch
 import app.ocmobile.ui.components.SettingsGroup
 import app.ocmobile.ui.components.SettingsRow
@@ -89,8 +90,7 @@ fun EditionScreen(nav: Nav) {
                 SettingsRow("Launch animation", subtitle = "Plays when the app starts; tap to skip", icon = Ic.Play, trailing = {
                     OcSwitch(intro) { intro = it; Graph.prefs.introEnabled = it }
                 })
-                // TODO(lead): the replay signal (`Intro.replay` on Android) was not ported; wire this row to the splash player in Root.kt
-                SettingsRow("Play it now", subtitle = "Opens the app again to see it", icon = Ic.Sparkle)
+                SettingsRow("Play it now", icon = Ic.Sparkle, onClick = { Intro.replay.intValue++ })
                 if (match != null) SettingsRow(
                     if (Graph.prefs.appIcon == match.id) "Icon matches this interface" else "Use the ${match.label} icon",
                     subtitle = "Any icon can still be picked in Settings → App icon", icon = Ic.Image,

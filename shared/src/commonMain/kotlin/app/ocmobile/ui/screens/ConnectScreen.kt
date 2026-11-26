@@ -42,6 +42,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ocmobile.Graph
 import app.ocmobile.api.str
+import app.ocmobile.platform.AUTH_CALLBACK_SCHEME
+import app.ocmobile.platform.closeAuthSession
+import app.ocmobile.platform.keyFromCallback
+import app.ocmobile.platform.openAuthSession
 import app.ocmobile.ui.Nav
 import app.ocmobile.ui.Route
 import app.ocmobile.ui.components.Ico
@@ -58,6 +62,9 @@ import kotlinx.coroutines.launch
 
 /** Providers with a free tier: sign in with your account on their site, then the key reaches the app by itself. */
 class FreeProvider(val id: String, val title: String, val note: String, val url: String, val keyRegex: Regex?, val where: String)
+
+/** Fallback for a callback when the provider has no key shape of its own: the usual key prefixes. */
+private val ANY_KEY_RE = Regex("(?:sk|gsk|AIza)[-_A-Za-z0-9]{20,}")
 
 val freeProviders = listOf(
     FreeProvider("github-copilot", "GitHub", "Copilot · free plan", "", null, "GitHub"),
@@ -101,9 +108,21 @@ fun ConnectScreen(providerId: String, nav: Nav) {
     fun acceptKey(key: String) {
         if (handled) return
         handled = true; state = "saving"
+        // the key is here, whether it came from the redirect, the box or the clipboard
+        closeAuthSession()
         scope.launch {
             try { Graph.api.setApiKey(providerId, key.trim()); done("key") }
             catch (e: Exception) { error = e.message ?: "Could not save the key"; state = "error"; handled = false }
+        }
+    }
+
+    // The site hands the key back on the app's scheme, the same trick Android played with its
+    // injected script. Providers that only show a Copy button never redirect, so the clipboard
+    // poll below stays as the net under this.
+    fun startAuth() {
+        openAuthSession(fp.url, AUTH_CALLBACK_SCHEME) { url ->
+            if (url == null) return@openAuthSession
+            keyFromCallback(url, fp.keyRegex ?: ANY_KEY_RE)?.let { acceptKey(it) }
         }
     }
 
@@ -125,7 +144,8 @@ fun ConnectScreen(providerId: String, nav: Nav) {
             } catch (e: Exception) { error = e.message ?: "GitHub did not confirm the sign-in"; state = "error" }
         }
     } else {
-        LaunchedEffect(Unit) { open(fp.url) }
+        // The sign-in happens in the auth sheet, which comes back with the key on its own.
+        LaunchedEffect(fp.id) { startAuth() }
         // Android re-read the clipboard when the app came back to the foreground (ON_RESUME).
         // Common code has no lifecycle events here, so the clipboard is polled instead:
         // while this screen is up, a key copied anywhere is picked up within a second and a half.
@@ -169,7 +189,7 @@ fun ConnectScreen(providerId: String, nav: Nav) {
                         size = 16.sp, color = c.textDim, lineHeight = 25.sp,
                     )
                     Spacer(Modifier.height(24.dp))
-                    Box(Modifier.clip(CircleShape).border(1.dp, c.border, CircleShape).tap { open(fp.url) }.padding(horizontal = 22.dp, vertical = 14.dp)) { Txt("Open ${fp.where} again", size = 16.sp) }
+                    Box(Modifier.clip(CircleShape).border(1.dp, c.border, CircleShape).tap { startAuth() }.padding(horizontal = 22.dp, vertical = 14.dp)) { Txt("Open ${fp.where} again", size = 16.sp) }
                     Spacer(Modifier.height(28.dp))
                     Txt("or paste the key here", size = 14.sp, color = c.textDim)
                     Spacer(Modifier.height(8.dp))

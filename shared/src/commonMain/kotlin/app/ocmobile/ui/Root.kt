@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -55,11 +56,18 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ocmobile.Graph
+import app.ocmobile.data.ConnectLink
+import app.ocmobile.ui.components.HelperHost
 import app.ocmobile.ui.components.Ico
 import app.ocmobile.ui.components.IconBtn
 import app.ocmobile.ui.components.FileViewerHost
+import app.ocmobile.ui.components.Intro
+import app.ocmobile.ui.components.IntroHost
+import app.ocmobile.ui.components.OcDialog
+import app.ocmobile.ui.components.OcNotice
 import app.ocmobile.ui.components.Spinner
 import app.ocmobile.ui.components.Txt
+import app.ocmobile.ui.components.WhatsNewHost
 import app.ocmobile.ui.components.trackTouches
 import app.ocmobile.ui.screens.AboutScreen
 import app.ocmobile.ui.screens.AgentsScreen
@@ -83,6 +91,7 @@ import app.ocmobile.ui.screens.MemoryScreen
 import app.ocmobile.ui.screens.ModelsScreen
 import app.ocmobile.ui.screens.OcSettingsScreen
 import app.ocmobile.ui.screens.Onboarding
+import app.ocmobile.ui.screens.PhoneToolsScreen
 import app.ocmobile.ui.screens.PermissionsScreen
 import app.ocmobile.ui.screens.PreviewScreen
 import app.ocmobile.ui.screens.ProfileScreen
@@ -111,15 +120,16 @@ private const val DRAWER_CORNER = 28f
  * The app shell: side menu, screen transitions, swipe-back, toasts.
  *
  * Ported from the Android `Root.kt`. The differences are what iOS cannot do:
- * there is no local server (no RuntimeState, no SetupScreen), no welcome tour
- * and no system back button — instead the edge swipe goes back and on the home
- * screens it opens the menu.
+ * there is no local server (no RuntimeState, no SetupScreen) and no system back
+ * button — instead the edge swipe goes back and on the home screens it opens the
+ * menu.
  */
 @Composable
 fun OcRoot() {
     val c = Oc.c
     Box(Modifier.fillMaxSize().background(c.bg).then(Modifier.trackTouches())) {
         Shell()
+        HelperHost()
         FileViewerHost()
         ToastHost()
         UndoHost()
@@ -127,6 +137,11 @@ fun OcRoot() {
         if (!Graph.prefs.onboarded) {
             Box(Modifier.fillMaxSize().background(c.bg)) { Onboarding() }
         }
+        // "What's new" after a version bump and the one-line OpenCode notice (Android put both in UpdateHost).
+        WhatsNewHost()
+        OcNotice()
+        // The splash, on top of everything; a tap skips it (Android had it in MainActivity).
+        IntroHost()
     }
 }
 
@@ -174,6 +189,8 @@ private fun Shell() {
             r == "route:github" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.GitHub) }
             r == "route:backup" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.Backup) }
             r == "route:skills" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.Skills) }
+            r == "route:phone" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.PhoneTools) }
+            r == "route:intro" -> Intro.replay.intValue++
             r == "route:about" -> { drawer.close(); nav.root(Route.Settings); nav.push(Route.About) }
             r.startsWith("route:connect:") -> { drawer.close(); nav.push(Route.Connect(r.removePrefix("route:connect:"))) }
             r.startsWith("route:console:") -> { drawer.close(); nav.push(Route.ConsoleLogin(r.removePrefix("route:console:"))) }
@@ -281,6 +298,43 @@ private fun Shell() {
             if (cur == Route.Home || cur == Route.NewCode || cur == Route.Code || cur is Route.Chat) ServerBanner()
         }
     }
+    ConnectPrompt(nav)
+}
+
+/** A QR code or a cl0udly://connect link: ask whether to connect, then connect. */
+@Composable
+private fun ConnectPrompt(nav: Nav) {
+    val c = Oc.c
+    val o = ConnectLink.pending ?: return
+    val scope = rememberCoroutineScope()
+    var busy by remember(o) { mutableStateOf(false) }
+    var error by remember(o) { mutableStateOf<String?>(null) }
+    OcDialog(
+        "Connect to ${o.name.ifBlank { "this computer" }}?",
+        onDismiss = { if (!busy) ConnectLink.pending = null },
+        confirmText = if (busy) "Connecting…" else "Connect",
+        onConfirm = {
+            if (busy) return@OcDialog
+            busy = true; error = null
+            scope.launch {
+                try {
+                    ConnectLink.accept(o)
+                    ConnectLink.pending = null
+                    // accept already left the chat the computer had open in `openRequest`, which the shell opens
+                    nav.root(Route.Code)
+                    Graph.chats.toasts.tryEmit("Connected to ${o.name.ifBlank { "your computer" }}")
+                } catch (e: Exception) {
+                    error = e.message?.takeIf { it.isNotBlank() } ?: "Can't reach the computer"
+                } finally { busy = false }
+            }
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Txt("OpenCode on it will work from this phone: chats, code and files.", size = 15.sp, color = c.textDim, lineHeight = 21.sp)
+            Txt(o.url, size = 13.sp, family = Oc.mono, color = c.textDim)
+            error?.let { Txt(it, size = 14.sp, color = c.danger) }
+        }
+    }
 }
 
 /** A screen on its background, no wider than 720 dp on tablets and in landscape (phones are unchanged). */
@@ -337,23 +391,8 @@ private fun RouteContent(r: Route, nav: Nav, open: () -> Unit) {
         // the mascot
         Route.Mascot -> MascotRoom(nav)
         Route.MascotSettings -> MascotSettings(nav)
-        // iOS never runs the server itself, so these sections have nothing to show
-        Route.PhoneTools -> IosSoon(nav)
-    }
-}
-
-/** The not-ported-yet screen: same frame as the real sections, one line of text. */
-@Composable
-private fun IosSoon(nav: Nav) {
-    val c = Oc.c
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        app.ocmobile.ui.components.TopBar(
-            title = nav.current.toString(),
-            left = { app.ocmobile.ui.components.IconBtn(Ic.Back, onClick = { nav.pop() }) },
-        )
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Txt("This section is on the way for iOS.", size = 15.sp, color = c.textDim)
-        }
+        // iOS never runs the server itself, so this section explains what the tools would do
+        Route.PhoneTools -> PhoneToolsScreen(nav)
     }
 }
 

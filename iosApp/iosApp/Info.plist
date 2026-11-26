@@ -18,6 +18,18 @@
 	<string>0.0.2</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<!-- cl0udly://connect?... is the link the computer shows as a QR code; the phone opens it too. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.ocmobile</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>cl0udly</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

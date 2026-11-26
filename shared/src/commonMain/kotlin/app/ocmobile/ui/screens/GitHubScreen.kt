@@ -63,8 +63,6 @@ import kotlinx.coroutines.launch
  * Android also installed git and gh in its container and the screen was useless on a paired
  * computer. Here the repositories are always on the computer, so instead of hiding everything
  * the screen keeps the device flow and says what the sign-in does and does not cover.
- *
- * TODO(lead): route `Route.GitHub` to this screen in Root.kt.
  */
 @Composable
 fun GitHubScreen(nav: Nav) {

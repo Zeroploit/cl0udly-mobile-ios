@@ -50,7 +50,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ocmobile.Graph
+import app.ocmobile.platform.AUTH_CALLBACK_SCHEME
 import app.ocmobile.platform.PlatformMedia
+import app.ocmobile.platform.closeAuthSession
+import app.ocmobile.platform.keyFromCallback
+import app.ocmobile.platform.openAuthSession
 import app.ocmobile.ui.Nav
 import app.ocmobile.ui.Route
 import app.ocmobile.ui.components.BrowserCommands
@@ -78,9 +82,10 @@ private val KEY_RE = Regex("sk-[A-Za-z0-9_-]{20,}")
  * "Done" screen.
  *
  * Android drove the console with injected JavaScript that read the key off the page and handed it
- * back through a JavascriptInterface. commonMain has no such bridge, so here the browser is a plain
- * [PlatformBrowser]: the person signs in, creates the key and comes back to paste it. The clipboard
- * is read once on return, which covers the usual "tap copy and switch back" case.
+ * back through a JavascriptInterface. iOS gets the same result natively: the sign-in runs in
+ * [openAuthSession] (ASWebAuthenticationSession) and comes back on the app's scheme with the key in
+ * the redirect, which [keyFromCallback] pulls out. If the redirect carries no key, the person can
+ * still paste it, or use the in-app browser when the platform has one.
  */
 
 @Composable
@@ -98,18 +103,32 @@ fun ConsoleLoginScreen(method: String, nav: Nav) {
     // so the steps advance when the API keys page opens.
     val step = if (browser.currentUrl?.contains("key", ignoreCase = true) == true) 1 else 0
 
-    // TODO(lead): capture the OAuth redirect on iOS with a custom scheme (ASWebAuthenticationSession
-    // or an opened URL handler) so the console can hand the key back on its own, as Android did.
-
     fun accept(key: String) {
         if (handled) return
         handled = true; stage = "saving"
+        // the key is here, whether it came from the redirect or the paste box
+        closeAuthSession()
         scope.launch {
             try { connectAccount(key, via); delay(400); stage = "done" }
             catch (e: Exception) { error = e.message ?: "Could not save the key"; stage = "error"; handled = false }
         }
     }
     fun openBrowser() = PlatformMedia.openUrl(CONSOLE_LOGIN)
+
+    // The console hands the key back on the app's scheme, the way Android's injected script did.
+    // A dismissed sheet changes nothing: the in-app browser is already behind it.
+    fun openAuth() {
+        openAuthSession(CONSOLE_LOGIN, AUTH_CALLBACK_SCHEME) { url ->
+            if (url == null) return@openAuthSession
+            val key = keyFromCallback(url, KEY_RE)
+            // no key in the redirect: the paste step is still there, so nothing is lost
+            if (key != null) accept(key) else if (stage != "saving" && stage != "done") stage = "paste"
+        }
+    }
+
+    // The web step is the sign-in itself, so the sheet opens with it. Only where the platform has a
+    // native sheet: the stub answers at once, and a second browser would land on top of the first.
+    LaunchedEffect(stage) { if (stage == "web" && platformBrowser) openAuth() }
 
     Column(Modifier.fillMaxSize().screenBackdrop("OpenCodeAccount1").statusBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {

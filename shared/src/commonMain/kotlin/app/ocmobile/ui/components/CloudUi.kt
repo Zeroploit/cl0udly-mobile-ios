@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -49,6 +50,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ocmobile.Graph
+import app.ocmobile.platform.PlatformBattery
+import app.ocmobile.platform.PlatformSensors
 import app.ocmobile.platform.nowMillis
 import app.ocmobile.ui.theme.Oc
 import kotlinx.coroutines.delay
@@ -323,15 +326,29 @@ fun PixelCloud(modifier: Modifier, thinking: Boolean = false, interactive: Boole
             if (mood == CloudMood.Drowsy && idle > 80_000) { calmJob?.cancel(); mood = CloudMood.Sleep }
         }
     }
-    // phone turned over: it stares and shakes until turned back (the accelerometer that could set
-    // [upside] is Android-only, so in shared code it never turns over)
+    // phone turned over: it stares and shakes until turned back. PlatformSensors reports tilt and
+    // shake only, so nothing sets [upside] today; the reaction stays for when the seam can tell.
     LaunchedEffect(upside) {
         if (!upside) { if (mood == CloudMood.Surprised) mood = CloudMood.Idle; return@LaunchedEffect }
         calmJob?.cancel(); mood = CloudMood.Surprised; haptic()
         while (true) { shake.animateTo(0.02f, tween(40)); shake.animateTo(-0.02f, tween(40)) }
     }
-    // charging (plugged in, it cheers) and the low-battery drowsiness were fed by the system's
-    // ACTION_BATTERY_CHANGED broadcast, an Android-only thing; [lowBattery] keeps its state, fed false
+    // charging: plugged in, it cheers with lightning overhead; battery under 15 %, it's drowsy.
+    // Fed by PlatformBattery (UIDevice on iOS) instead of Android's battery broadcast.
+    var wasPlugged by remember { mutableStateOf<Boolean?>(null) }
+    DisposableEffect(interactive) {
+        if (!interactive || !prefs.mascotBattery) return@DisposableEffect onDispose { }
+        PlatformBattery.observe { plugged, low ->
+            lowBattery = low
+            if (wasPlugged == false && plugged) {
+                lastTouch = nowMillis(); haptic(); app.ocmobile.data.Sounds.play(app.ocmobile.data.Sounds.S.Tap)
+                set(CloudMood.Happy, 1500); boing(0.8f)
+                bit('z', 0.78f); bit('z', 0.78f, 450); bit('z', 0.78f, 900)
+            }
+            wasPlugged = plugged
+        }
+        onDispose { }
+    }
     // morning: the first launch of the day after 6 am, it stretches and hops
     LaunchedEffect(interactive) {
         if (!interactive) return@LaunchedEffect
@@ -365,8 +382,6 @@ fun PixelCloud(modifier: Modifier, thinking: Boolean = false, interactive: Boole
     }
     // dictation: while you speak, volume bars hop above its head
     val listening = MascotSignals.listening && interactive
-    // phone shake and tilt (not with motion off: battery saver or animations turned off) were read
-    // from the accelerometer, Android-only: [tilt] keeps its state, fed 0
     // the side menu: eyes follow it out; fully open, a short wide-eyed look; closed again, back to normal
     val drawerOut = MascotSignals.drawer
     val drawerOpen = interactive && drawerOut > 0.9f
@@ -374,6 +389,21 @@ fun PixelCloud(modifier: Modifier, thinking: Boolean = false, interactive: Boole
 
     val frameS = rememberSteps(if (thinking) 130 else 240)
     val motion = app.ocmobile.platform.rememberMotionEnabled()
+    // phone shake and tilt, through PlatformSensors (CoreMotion on iOS). Off with motion off (battery
+    // saver or animations turned off) and with the sensor setting off, exactly as on Android.
+    DisposableEffect(interactive, motion) {
+        if (!interactive || !motion || !prefs.mascotSensors) return@DisposableEffect onDispose { }
+        PlatformSensors.start(
+            onTilt = { tilt = it },
+            onShake = {
+                val now = nowMillis()
+                if (mood != CloudMood.Dizzy && !upside) {
+                    lastTouch = now; onReact?.invoke("dizzy"); set(CloudMood.Dizzy, 2200); wobble(0.06f); haptic()
+                }
+            },
+        )
+        onDispose { PlatformSensors.stop() }
+    }
     val idleMotion = if (motion) rememberIdleMotion() else null
     val down by androidx.compose.animation.core.animateFloatAsState(if (watching) 1f else 0f, tween(200), label = "down")
     val tiltA by androidx.compose.animation.core.animateFloatAsState(tilt, tween(150), label = "tilt")

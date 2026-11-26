@@ -31,6 +31,7 @@ import app.ocmobile.Graph
 import app.ocmobile.api.AllProvider
 import app.ocmobile.api.AuthMethod
 import app.ocmobile.api.str
+import app.ocmobile.data.FreeModels
 import app.ocmobile.platform.PlatformMedia
 import app.ocmobile.ui.Nav
 import app.ocmobile.ui.Route
@@ -120,9 +121,8 @@ fun ProvidersScreen(nav: Nav) {
         OcDialog("Disconnect $name?", { disconnect = null }, "Disconnect", {
             disconnect = null
             scope.launch {
-                // Android also removed the free routes from the global config (FreeModels.disable);
-                // the shared API has no such route, so removing the key is all a client can do.
-                // TODO(lead): add a shared FreeModels.disable (patchGlobalConfig "disabled_providers").
+                // Android also turned the free route off in the global config; the server's config route does that here.
+                runCatching { FreeModels.disable(id) }
                 runCatching { Graph.api.removeAuth(id); Graph.api.disposeAll() }
                 Graph.catalog.refresh(); load()
             }

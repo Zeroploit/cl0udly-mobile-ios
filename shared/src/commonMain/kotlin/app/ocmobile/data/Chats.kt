@@ -509,10 +509,31 @@ class Chats(
     /** Open a chat from a notification tap. */
     val openRequest = MutableStateFlow<String?>(null)
 
-    /** The agent finished: mark the chat (a client has no sounds, vibration or notifications of its own). */
+    /** The agent finished: mark the chat and, on screen, celebrate; in the background, notify. */
     private fun finished(id: String) {
+        // a failed reply also ends with "idle": don't let it turn the sad reaction into a happy one
+        val was = app.ocmobile.ui.components.MascotSignals.outcome
+        if (!(was != null && !was.ok && was.sessionId == id && nowMillis() - was.at < 3000))
+            app.ocmobile.ui.components.MascotSignals.outcome = app.ocmobile.ui.components.Outcome(ok = true, sessionId = id)
         if (isIncognito(id)) return
         if (!(foreground && viewing == id)) doneUnseen.update { it + id }
+        Limits.checkSpending()
+        // On screen the reply is its own reward: the note plays, the phone ticks, nothing covers the chat.
+        if (foreground) {
+            Sounds.play(Sounds.S.Done)
+            return
+        }
+        // The app is in the background: a local notification carries the start of the reply.
+        if (!Graph.isPrefsReady() || !prefs.liveNotify) return
+        scope.launch {
+            delay(400)
+            val msg = chats[id]?.messages?.lastOrNull { !it.info.isUser }
+            val text = msg?.parts?.filter { it.type == "text" }?.joinToString(" ") { it.text }
+                ?.replace(Regex("[`*#>_]"), "")?.trim()?.takeIf { it.isNotBlank() }
+                ?: msg?.info?.errorMessage ?: "The task is done"
+            val title = session(id)?.displayTitle?.ifBlank { null } ?: "OpenCode"
+            app.ocmobile.platform.PlatformNotify.show(id, title, text.take(600), id)
+        }
     }
 
     private var switching = false

@@ -2,12 +2,14 @@
 
 package app.ocmobile.platform
 
+import app.ocmobile.Graph
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.AVFAudio.AVAudioPlayer
 import platform.AVFAudio.AVAudioSession
 import platform.AVFAudio.AVAudioSessionCategoryPlayback
 import platform.AVFAudio.AVSpeechBoundary
 import platform.AVFAudio.AVSpeechSynthesizer
+import platform.AVFAudio.AVSpeechSynthesisVoice
 import platform.AVFAudio.AVSpeechUtterance
 import platform.AVFAudio.setActive
 import platform.Foundation.NSData
@@ -125,7 +127,10 @@ actual object PlatformMedia {
         session.setActive(true, error = null)
         if (synthesizer.speaking) synthesizer.stopSpeakingAtBoundary(AVSpeechBoundary.AVSpeechBoundaryImmediate)
         val utterance = AVSpeechUtterance.speechUtteranceWithString(text)
-        // the system voice speaks the device language, as Android's default TextToSpeech did
+        // the voice picked in Settings wins; with none, the system speaks the device language
+        val picked = if (Graph.isPrefsReady()) Graph.prefs.ttsVoice else ""
+        val pickedVoice = if (picked.isBlank()) null else AVSpeechSynthesisVoice.voiceWithIdentifier(picked)
+        if (pickedVoice != null) utterance.voice = pickedVoice
         synthesizer.speakUtterance(utterance)
         return true
     }

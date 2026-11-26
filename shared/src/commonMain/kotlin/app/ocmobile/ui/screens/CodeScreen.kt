@@ -39,7 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ocmobile.Graph
 import app.ocmobile.api.Session
+import app.ocmobile.data.ConnectLink
 import app.ocmobile.platform.nowMillis
+import app.ocmobile.platform.scanQrCode
 import app.ocmobile.ui.Nav
 import app.ocmobile.ui.Route
 import app.ocmobile.ui.components.FloatItem
@@ -237,8 +239,14 @@ private fun ServerSheet(onDismiss: () -> Unit) {
         Column(Modifier.imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Txt("The phone is a client: OpenCode runs on your computer and this app talks to it. On the computer, run this — it starts OpenCode and shows a QR code:", size = 16.sp, color = c.textDim, lineHeight = 22.sp)
             Txt(QR_COMMAND, Modifier.clip(Oc.round(14.dp)).background(c.codeBg).padding(12.dp), size = 13.sp, family = Oc.mono)
-            // no QR scanner on iOS in this port yet: the address is typed by hand
-            // TODO(lead): a camera QR scan for the connection code (no ML Kit here)
+            // the camera reads the same link the phone can also open from its own camera app
+            SmallButton("Scan QR code", {
+                error = null
+                scanQrCode { r ->
+                    if (r == null) return@scanQrCode
+                    if (ConnectLink.offer(r)) onDismiss() else error = "That's not a cl0udly connection code"
+                }
+            })
             Txt("Or enter it by hand:", size = 14.sp, color = c.textDim, modifier = Modifier.padding(top = 6.dp))
             OcTextField(url, { url = it }, placeholder = "Address, e.g. 192.168.0.5:4096")
             OcTextField(pass, { pass = it }, placeholder = "Server password", password = true)

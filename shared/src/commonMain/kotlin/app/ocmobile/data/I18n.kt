@@ -3,23 +3,40 @@ package app.ocmobile.data
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.ocmobile.platform.systemLanguage
+import app.ocmobile.resources.Res
 
 /**
  * Russian and English. The app is written in English; in Russian every text shown through [t] is
- * looked up in the translation table, and phrases with numbers or names in them go through the
- * patterns below. A text without a translation stays English.
+ * looked up in the bundled table (English, tab, Russian), and phrases with numbers or names in
+ * them go through the patterns below. A text without a translation stays English.
  *
- * Ported from the Android `I18n.kt`. The translation table ships as an asset in the Android APK;
- * on iOS the bundled table is not loaded yet, so [dict] is empty and only the patterns apply —
- * every string is still English, which is what the app ships with by default anyway.
+ * Ported from the Android `I18n.kt`. Android read the table from the APK assets; here it is a
+ * Compose Resource, so [load] is `suspend` and the caller runs it once at start-up. Until then
+ * only the patterns apply and every string stays English.
  */
 object I18n {
     /** "system", "en" or "ru". Changing it repaints every text at once. */
     var lang by mutableStateOf("system")
 
-    val ru: Boolean get() = lang == "ru"
+    val ru: Boolean get() = lang == "ru" || (lang == "system" && systemLanguage() == "ru")
 
-    private val dict: Map<String, String> = emptyMap()
+    private var dict by mutableStateOf<Map<String, String>>(emptyMap())
+    private var loaded = false
+
+    // Loaded once from `App` at start-up; until then the table is empty and texts stay English.
+
+    /** Reads the bundled table once; a missing or broken file leaves the app in English. */
+    suspend fun load() {
+        if (loaded) return
+        dict = runCatching {
+            Res.readBytes("files/i18n/ru.tsv").decodeToString().lineSequence().mapNotNull { line ->
+                val i = line.indexOf('\t')
+                if (i <= 0) null else line.substring(0, i) to line.substring(i + 1)
+            }.toMap()
+        }.getOrDefault(emptyMap())
+        loaded = true
+    }
 
     private val patterns = listOf(
         "Read (.+)" to "Прочитал $1", "Edited (.+)" to "Изменил $1", "Wrote (.+)" to "Записал $1",

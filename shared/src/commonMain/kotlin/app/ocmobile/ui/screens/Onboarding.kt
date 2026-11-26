@@ -81,8 +81,7 @@ import kotlinx.coroutines.launch
  * the environment while the tour ran and asked for background/notification permissions; iOS has
  * neither, so that step became "where is your computer" and nothing waits for a server to come up.
  *
- * TODO(lead): mount this in Root.kt like Android does — on top of the shell, taking every touch,
- * while `!Graph.prefs.onboarded`.
+ * Root mounts it on top of the shell, taking every touch, while `!Graph.prefs.onboarded`.
  */
 
 private val STEPS = listOf("Hi", "Chat", "Computer", "Team", "Play", "You", "Setup", "Connect", "Account")

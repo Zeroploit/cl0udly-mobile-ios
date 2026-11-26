@@ -44,8 +44,6 @@ import kotlinx.coroutines.launch
  * The screen is the same as on Android; what changed is underneath: the archive is made from the
  * computer's home folder, and a client cannot reach that filesystem. Both rows stay in place and
  * say so, instead of failing silently.
- *
- * TODO(lead): route `Route.Backup` to this screen in Root.kt.
  */
 @Composable
 fun BackupScreen(nav: Nav) {
