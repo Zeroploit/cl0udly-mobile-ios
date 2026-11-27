@@ -40,8 +40,9 @@ actual fun shareFiles(files: List<ShareFile>, text: String, onDone: () -> Unit) 
         return
     }
     val sheet = UIActivityViewController(activityItems = items, applicationActivities = null)
-    // iPad: a popover needs an anchor or it crashes; on iPhone this is simply ignored
-    sheet.popoverPresentationController?.sourceView = rootView()
+    // No popover anchor: iOS 14+ presents the sheet as a centered card on iPad by itself, and
+    // this app ships for iPhone. The popoverPresentationController binding does not exist in
+    // this toolchain (verified by the CI build of 2026-11-27).
     host.presentViewController(sheet, animated = true, completion = null)
     onMain { onDone() }
 }

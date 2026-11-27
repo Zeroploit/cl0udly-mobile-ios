@@ -3,6 +3,7 @@ package app.ocmobile.data
 import app.ocmobile.Graph
 import app.ocmobile.api.OpenCodeApi
 import app.ocmobile.api.Session
+import kotlin.concurrent.Volatile
 
 /**
  * Global search across sessions, for the search bar over the chat list.

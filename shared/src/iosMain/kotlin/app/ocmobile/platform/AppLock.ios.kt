@@ -1,24 +1,23 @@
-@file:OptIn(ExperimentalForeignApi::class)
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 
 package app.ocmobile.platform
 
 import platform.LocalAuthentication.LAContext
-import platform.LocalAuthentication.LAPolicy
 import platform.LocalAuthentication.LAPolicyDeviceOwnerAuthentication
 import platform.LocalAuthentication.LAPolicyDeviceOwnerAuthenticationWithBiometrics
 
 /**
  * App lock through LocalAuthentication: Face ID / Touch ID when enrolled, the device passcode
  * otherwise. `canEvaluatePolicy` asks the same question the unlock dialog would, without ever
- * showing UI. NS_ENUM constants use the prefixed member form (`LAPolicy.LAPolicy...`), the form
- * verified to compile in this toolchain (see docs/PORT-BRIEF-2.md).
+ * showing UI. The LAPolicy constants come in as top-level values (the `LAPolicy.` member form
+ * does not exist in this toolchain's bindings — verified by the CI build of 2026-11-27).
  */
 actual val appLockAvailable: Boolean
     get() {
         val context = LAContext()
-        return context.canEvaluatePolicy(LAPolicy.LAPolicyDeviceOwnerAuthenticationWithBiometrics, null) ||
+        return context.canEvaluatePolicy(LAPolicyDeviceOwnerAuthenticationWithBiometrics, null) ||
             // passcode-only devices: no biometry enrolled, but the phone can still be unlocked
-            context.canEvaluatePolicy(LAPolicy.LAPolicyDeviceOwnerAuthentication, null)
+            context.canEvaluatePolicy(LAPolicyDeviceOwnerAuthentication, null)
     }
 
 /**
@@ -31,7 +30,7 @@ actual val appLockAvailable: Boolean
 actual fun authenticateAppLock(reason: String, onResult: (Boolean) -> Unit) {
     val context = LAContext()
     context.evaluatePolicy(
-        LAPolicy.LAPolicyDeviceOwnerAuthentication,
+        LAPolicyDeviceOwnerAuthentication,
         localizedReason = reason,
     ) { success, _ ->
         // the error is set on failure and on cancel alike; both end as "locked"

@@ -1,19 +1,29 @@
-@file:OptIn(ExperimentalForeignApi::class)
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 
 package app.ocmobile.platform
 
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.CoreGraphics.CGPointMake
 import platform.CoreGraphics.CGRectMake
+import platform.Foundation.NSMutableData
+import platform.Foundation.NSString
 import platform.UIKit.NSFontAttributeName
 import platform.UIKit.UIFont
 import platform.UIKit.UIFontWeightSemibold
-import platform.UIKit.UIGraphicsPDFRenderer
+import platform.UIKit.UIGraphicsBeginPDFContextToData
+import platform.UIKit.UIGraphicsBeginPDFPage
+import platform.UIKit.UIGraphicsEndPDFContext
+import platform.UIKit.drawAtPoint
 
 /**
- * A simple text PDF, rendered with UIGraphicsPDFRenderer on CoreGraphics: A4 pages, a title
- * header on the first page and the plain lines below it, wrapped to the page width and
+ * A simple text PDF, rendered with the plain CoreGraphics PDF context functions: A4 pages, a
+ * title header on the first page and the plain lines below it, wrapped to the page width and
  * paginated by line height. iOS can always render, so this never delivers null.
+ *
+ * The begin/end context functions are used instead of UIGraphicsPDFRenderer: their bindings are
+ * flat C calls, while the renderer's block-based `pdfData` API did not compile in this
+ * toolchain (verified by the CI build of 2026-11-27). Text is drawn through NSString's
+ * `drawAtPoint` — the UIKit String extension does not exist on Kotlin String, hence the cast.
  */
 actual fun chatPdf(title: String, lines: List<String>, onResult: (ByteArray?) -> Unit) {
     val pageWidth = 612.0
@@ -43,35 +53,32 @@ actual fun chatPdf(title: String, lines: List<String>, onResult: (ByteArray?) ->
         wrapped += rest
     }
 
-    val renderer = UIGraphicsPDFRenderer(
-        bounds = CGRectMake(0.0, 0.0, pageWidth, pageHeight),
-        formatAttributes = null,
-    )
-    val data = renderer.pdfData { context ->
-        var index = 0
-        var page = 0
-        while (true) {
-            context.beginPage()
-            var y = margin
-            if (page == 0 && titleBlock > 0.0) {
-                title.drawAtPoint(
-                    point = CGPointMake(margin, y),
-                    withAttributes = mapOf<Any?, Any>(NSFontAttributeName to titleFont),
-                )
-                y += titleBlock
-            }
-            val bottom = pageHeight - margin
-            while (index < wrapped.size && y + lineHeight <= bottom) {
-                wrapped[index].drawAtPoint(
-                    point = CGPointMake(margin, y),
-                    withAttributes = mapOf<Any?, Any>(NSFontAttributeName to bodyFont),
-                )
-                y += lineHeight
-                index++
-            }
-            if (index >= wrapped.size) return@pdfData
-            page++
+    val data = NSMutableData()
+    UIGraphicsBeginPDFContextToData(data, CGRectMake(0.0, 0.0, pageWidth, pageHeight), emptyMap<Any?, Any>())
+    var index = 0
+    var page = 0
+    while (true) {
+        UIGraphicsBeginPDFPage()
+        var y = margin
+        if (page == 0 && titleBlock > 0.0) {
+            (title as NSString).drawAtPoint(
+                CGPointMake(margin, y),
+                mapOf<Any?, Any>(NSFontAttributeName to titleFont),
+            )
+            y += titleBlock
         }
+        val bottom = pageHeight - margin
+        while (index < wrapped.size && y + lineHeight <= bottom) {
+            (wrapped[index] as NSString).drawAtPoint(
+                CGPointMake(margin, y),
+                mapOf<Any?, Any>(NSFontAttributeName to bodyFont),
+            )
+            y += lineHeight
+            index++
+        }
+        if (index >= wrapped.size) break
+        page++
     }
+    UIGraphicsEndPDFContext()
     onResult(data.toByteArray())
 }
