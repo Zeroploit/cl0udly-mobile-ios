@@ -125,6 +125,15 @@ private fun Room(onPlay: (String) -> Unit) {
             if (nowMillis() - said > 14_000) say(CloudTalk.idle.random())
         }
     }
+    // the server dropped or came back: a short line about it (the first known state says nothing)
+    val connected by Graph.chats.connected.collectAsState()
+    var serverWasUp by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(connected) {
+        val was = serverWasUp
+        serverWasUp = connected
+        if (was == null || was == connected) return@LaunchedEffect
+        say((if (connected) CloudTalk.serverBack else CloudTalk.serverLost).random())
+    }
     Column(Modifier.fillMaxSize().navigationBarsPadding().padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         // a line of speech: changes quickly, a bubble above the mascot
         AnimatedContent(line, label = "say", transitionSpec = { (fadeIn(tween(90)) + scaleIn(tween(120), initialScale = 0.9f)) togetherWith fadeOut(tween(60)) }) { t ->

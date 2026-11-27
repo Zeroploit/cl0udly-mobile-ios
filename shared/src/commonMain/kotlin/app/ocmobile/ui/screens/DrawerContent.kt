@@ -118,7 +118,7 @@ fun DrawerContent(nav: Nav, close: () -> Unit) {
                 // Kimi: history search at the bottom and a round settings button
                 if (prefs.drawerSearch) Row(
                     Modifier.weight(1f).height(52.dp).clip(CircleShape).background(c.surfaceHigh.copy(alpha = 0.7f)).border(1.dp, c.border, CircleShape)
-                        .tap(scale = 0.98f) { SearchHandoff.pending = true; go(Route.Recents) }.padding(horizontal = 18.dp),
+                        .tap(scale = 0.98f) { go(Route.Search) }.padding(horizontal = 18.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) { Ico(Ic.Search, tint = c.textDim, size = 22.dp); Spacer(Modifier.width(12.dp)); Txt("Search", size = 17.sp, color = c.textDim) }
                 if (prefs.drawerSearch) Spacer(Modifier.width(10.dp)) else Spacer(Modifier.weight(1f))

@@ -17,6 +17,7 @@ sealed interface Route {
     data object Artifacts : Route
     data object Scheduled : Route
     data object Recents : Route
+    data object Search : Route
     data object Projects : Route
     data object Settings : Route
     data object Usage : Route
@@ -87,6 +88,7 @@ object NavMemory {
         Route.Artifacts,
         Route.Scheduled,
         Route.Recents,
+        Route.Search,
         Route.Projects,
         Route.Settings,
         Route.Usage,

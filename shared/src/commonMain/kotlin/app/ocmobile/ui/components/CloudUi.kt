@@ -243,6 +243,13 @@ fun PixelCloud(modifier: Modifier, thinking: Boolean = false, interactive: Boole
     }
     fun heart(x: Float = 0.2f + kotlin.random.Random.nextDouble().toFloat() * 0.6f) { hearts.add(Bit('h', x, nowMillis())) }
     fun bit(kind: Char, x: Float, delayMs: Long = 0) { hearts.add(Bit(kind, x, nowMillis() + delayMs)) }
+    // the sneeze itself: eyes shut, a jolt, a little rain; a rare tap reaction, and a quick double-tap lands in one too
+    suspend fun sneezeBody() {
+        mood = CloudMood.Sleep; delay(180); mood = CloudMood.Angry; boing(0.75f)
+        shake.animateTo(0.04f, tween(50)); shake.animateTo(0f, tween(80))
+        listOf(0.25f, 0.45f, 0.65f, 0.35f, 0.55f).forEachIndexed { i, x -> bit('d', x, i * 40L) }
+        delay(500)
+    }
     // one tap: a different reaction each time, never the same one twice in a row
     fun tapReaction() {
         onReact?.invoke("tap")
@@ -270,9 +277,7 @@ fun PixelCloud(modifier: Modifier, thinking: Boolean = false, interactive: Boole
                 // peekaboo: closes and pops open its eyes
                 7 -> { mood = CloudMood.Sleep; delay(320); mood = CloudMood.Surprised; boing(0.8f); delay(600) }
                 // sneezes a little rain
-                8 -> { mood = CloudMood.Sleep; delay(180); mood = CloudMood.Angry; boing(0.75f)
-                    shake.animateTo(0.04f, tween(50)); shake.animateTo(0f, tween(80))
-                    listOf(0.25f, 0.45f, 0.65f, 0.35f, 0.55f).forEachIndexed { i, x -> bit('d', x, i * 40L) }; delay(500) }
+                8 -> sneezeBody()
                 // wonders: "?" and a look up
                 else -> { mood = CloudMood.Idle; bit('q', 0.82f); dartY.animateTo(-1f, tween(120)); dartX.animateTo(0.6f, tween(120)); delay(900); dartX.animateTo(0f, tween(120)); dartY.animateTo(0f, tween(120)) }
             }
@@ -458,7 +463,11 @@ fun PixelCloud(modifier: Modifier, thinking: Boolean = false, interactive: Boole
                         when {
                             wasAsleep -> { taps.clear(); onReact?.invoke("wake"); set(CloudMood.Surprised, 900); scope.launch { jump.animateTo(-0.22f, tween(90)); jump.animateTo(0f, tween(110)); boing(0.8f) } }
                             taps.size >= 5 || mood == CloudMood.Angry -> { if (mood != CloudMood.Angry) onReact?.invoke("angry"); set(CloudMood.Angry, 2600); wobble(0.05f); boing() }
-                            taps.size >= 2 && now - taps[taps.size - 2] < 320 -> { set(CloudMood.Wink, 1100); boing(0.9f) }
+                            taps.size >= 2 && now - taps[taps.size - 2] < 320 -> {
+                                // a quick double-tap: usually a wink, but every other one makes it sneeze
+                                if (kotlin.random.Random.nextBoolean()) { set(CloudMood.Wink, 1100); boing(0.9f) }
+                                else { onReact?.invoke("sneeze"); calmJob?.cancel(); calmJob = scope.launch { sneezeBody(); mood = CloudMood.Idle } }
+                            }
                             else -> tapReaction()
                         }
                         return@awaitEachGesture

@@ -99,6 +99,7 @@ import app.ocmobile.ui.screens.ProjectsScreen
 import app.ocmobile.ui.screens.ProvidersScreen
 import app.ocmobile.ui.screens.RecentsScreen
 import app.ocmobile.ui.screens.ScheduledScreen
+import app.ocmobile.ui.screens.SearchScreen
 import app.ocmobile.ui.screens.ServerScreen
 import app.ocmobile.ui.screens.SettingsScreen
 import app.ocmobile.ui.screens.SideMenuScreen
@@ -381,6 +382,7 @@ private fun RouteContent(r: Route, nav: Nav, open: () -> Unit) {
         is Route.SkillEdit -> SkillEditScreen(r.name, nav)
         // chats, code and work
         Route.Recents -> RecentsScreen(nav, open)
+        Route.Search -> SearchScreen(nav)
         Route.Projects -> ProjectsScreen(nav, open)
         Route.Code -> CodeScreen(nav, open)
         Route.Artifacts -> ArtifactsScreen(nav, open)

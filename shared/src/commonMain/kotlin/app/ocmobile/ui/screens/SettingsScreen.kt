@@ -41,7 +41,9 @@ import app.ocmobile.data.Sounds
 import app.ocmobile.data.Team
 import app.ocmobile.platform.PlatformMedia
 import app.ocmobile.platform.PlatformVoice
+import app.ocmobile.platform.appLockAvailable
 import app.ocmobile.platform.appVersion
+import app.ocmobile.platform.authenticateAppLock
 import app.ocmobile.platform.deviceLabel
 import app.ocmobile.runtime.RuntimeState
 import app.ocmobile.ui.Nav
@@ -185,6 +187,19 @@ fun SettingsScreen(nav: Nav, onMenu: () -> Unit) {
                 SettingsRow("Permissions", subtitle = mapOf("ask" to "Ask", "edits" to "Auto-edit", "auto" to "Auto")[prefs.permissionMode], icon = Ic.Shield, onClick = { nav.push(Route.PermissionsCfg) })
             }
             Spacer(Modifier.height(16.dp))
+            // the lock asks for Face ID (or the passcode) when the app opens; shown only where the device can do it
+            if (appLockAvailable) {
+                SettingsGroup {
+                    SettingsRow("Face ID lock", subtitle = "Ask for Face ID when opening cl0udly", icon = Ic.Shield, trailing = {
+                        OcSwitch(prefs.appLock) { on ->
+                            if (!on) prefs.appLock = false
+                            // switching on must pass the unlock first: a cancelled or failed one leaves the lock off
+                            else authenticateAppLock("Unlock to confirm") { ok -> prefs.appLock = ok }
+                        }
+                    })
+                }
+                Spacer(Modifier.height(16.dp))
+            }
             SettingsGroup {
                 SettingsRow("Interface", subtitle = app.ocmobile.ui.theme.Looks.of(prefs.edition).title, icon = Ic.Palette, onClick = { nav.push(Route.Edition) })
                 // the mascot tab: only in the cl0udly look

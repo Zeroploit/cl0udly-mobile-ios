@@ -103,6 +103,7 @@ class Prefs(
     var phoneTools by bool("phone_tools", true)          // "phone" MCP: the agent can act on this phone
     var phoneToken by str("phone_token", "")
     var phoneToolsOff by str("phone_tools_off", "")      // disabled tools, comma-separated
+    var appLock by bool("app_lock", false)               // ask for Face ID when the app opens
     var liveNotify by bool("live_notify", true)          // notification with work progress and permission buttons
     var costHint by bool("cost_hint", true)              // price hint under the input
     var busyIds by str("busy_ids", "")                   // sessions that were running at the last known state

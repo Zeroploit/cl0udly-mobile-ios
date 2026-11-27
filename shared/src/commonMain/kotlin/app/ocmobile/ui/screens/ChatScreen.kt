@@ -50,8 +50,12 @@ import app.ocmobile.Graph
 import app.ocmobile.api.arr
 import app.ocmobile.api.long
 import app.ocmobile.api.str
+import app.ocmobile.data.ChatExport
 import app.ocmobile.data.ChatMessage
+import app.ocmobile.platform.ShareFile
+import app.ocmobile.platform.chatPdf
 import app.ocmobile.platform.nowMillis
+import app.ocmobile.platform.shareFiles
 import app.ocmobile.ui.Nav
 import app.ocmobile.ui.components.ComposerHost
 import app.ocmobile.ui.components.DiffView
@@ -101,6 +105,7 @@ fun ChatScreen(id: String, nav: Nav, onMenu: () -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
     var showDiff by remember { mutableStateOf(false) }
     var showTimeline by remember { mutableStateOf(false) }
+    var showExport by remember { mutableStateOf(false) }
     var actionsFor by remember { mutableStateOf<ChatMessage?>(null) }
     var selectText by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<ChatMessage?>(null) }
@@ -356,6 +361,7 @@ fun ChatScreen(id: String, nav: Nav, onMenu: () -> Unit) {
                                     MenuItem("Changes", Ic.Diff) { showDiff = true },
                                     MenuItem("Fork", Ic.Branch) { scope.launch { runCatching { Graph.api.forkSession(id, chat.directory, null) }.getOrNull()?.let { nav.openChat(it.id) } } },
                                     MenuItem("Compact context", Ic.Scroll) { scope.launch { runCatching { Graph.api.summarize(id, chat.directory, Graph.prefs.providerId, Graph.prefs.modelId) } } },
+                                    MenuItem("Export", Ic.Share) { showExport = true },
                                     MenuItem("Archive", Ic.Archive) { scope.launch { runCatching { Graph.api.archiveSession(id, chat.directory) }; nav.pop() } },
                                     MenuItem("Delete", Ic.Trash, danger = true) { confirmDelete = true },
                                 ),
@@ -451,6 +457,20 @@ fun ChatScreen(id: String, nav: Nav, onMenu: () -> Unit) {
     if (confirmDelete) LaunchedEffect(Unit) { confirmDelete = false; nav.pop(); hub.deleteWithUndo(listOf(id)) }
     if (showDiff) DiffSheet(id, chat.directory) { showDiff = false }
     if (showTimeline) TimelineSheet(chat) { showTimeline = false }
+    if (showExport) ExportSheet(
+        onDismiss = { showExport = false },
+        onMarkdown = {
+            val md = ChatExport.markdown(id, session, chat.messages)
+            shareFiles(listOf(ShareFile(exportFileName(session) + ".md", "text/markdown", md.encodeToByteArray())), "", onDone = {})
+        },
+        onPdf = {
+            val md = ChatExport.markdown(id, session, chat.messages)
+            chatPdf(session?.displayTitle?.ifBlank { null } ?: "Chat", md.lines()) { pdf ->
+                if (pdf != null) shareFiles(listOf(ShareFile(exportFileName(session) + ".pdf", "application/pdf", pdf)), "", onDone = {})
+                else hub.toasts.tryEmit("PDF is not available on this device")
+            }
+        },
+    )
 }
 
 /** A helper's name for people (as Android's `Team.display`, without the members file a client cannot read). */
@@ -630,3 +650,25 @@ private fun ChatMenu(onDismiss: () -> Unit, items: List<MenuItem>) {
         }
     }
 }
+
+/** Where an exported chat goes: a Markdown file or a PDF, both handed to the system share sheet. */
+@Composable
+private fun ExportSheet(onDismiss: () -> Unit, onMarkdown: () -> Unit, onPdf: () -> Unit) {
+    val c = Oc.c
+    OcSheet(onDismiss, "Export chat", skipHalf = false) {
+        Column(Modifier.padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth().clip(Oc.round(16.dp)).background(c.surface).clickable { onDismiss(); onMarkdown() }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Ico(Ic.File, tint = c.textDim, size = 20.dp); Spacer(Modifier.width(10.dp))
+                Txt("Markdown file", size = 15.sp, maxLines = 1, modifier = Modifier.weight(1f))
+            }
+            Row(Modifier.fillMaxWidth().clip(Oc.round(16.dp)).background(c.surface).clickable { onDismiss(); onPdf() }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Ico(Ic.FileUp, tint = c.textDim, size = 20.dp); Spacer(Modifier.width(10.dp))
+                Txt("PDF file", size = 15.sp, maxLines = 1, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** The export's file name: the session's title kept to letters, digits and dashes ("chat" when nothing survives). */
+private fun exportFileName(session: app.ocmobile.api.Session?): String =
+    session?.displayTitle.orEmpty().filter { it.isLetterOrDigit() || it == '-' }.take(64).ifBlank { "chat" }

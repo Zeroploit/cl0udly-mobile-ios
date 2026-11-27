@@ -157,11 +157,15 @@ object CloudTalk {
     val idle = listOf(
         "Your task is still running. Wanna play?", "Did you know clouds weigh about 500 tonnes?", "I'd make it rain, but your phone is not waterproof.",
         "I'm 0% water, 100% pixels.", "Ping-pong? I'm undefeated. Mostly.", "Do you think the code is happy?", "I counted the stars. There are many.",
+        "Today's forecast: scattered bugs, clearing by evening.", "I dreamt I was a storm cloud. Woke up fluffy.", "Somewhere out there, a linter is crying.",
     )
     val won = listOf("Ha! My point.", "Too slow!", "Cloud wins!", "Gotcha.")
     val lost = listOf("Lucky shot.", "Okay, okay, you got me.", "Rematch!", "I let you win.")
+    val sneeze = listOf("Achoo!", "Excuse me.", "Must be the pixel dust.", "*sneezes*")
+    val serverBack = listOf("The server is back.", "Reconnected. I can hear the events again.")
+    val serverLost = listOf("Lost the server…", "The sky went quiet. Server down?")
     fun of(event: String): String? = when (event) {
-        "tap" -> tap; "pet" -> pet; "sleep" -> sleep; "wake" -> wake; "angry" -> angry; "dizzy" -> dizzy
+        "tap" -> tap; "pet" -> pet; "sleep" -> sleep; "wake" -> wake; "angry" -> angry; "dizzy" -> dizzy; "sneeze" -> sneeze
         else -> null
     }?.random()
 
